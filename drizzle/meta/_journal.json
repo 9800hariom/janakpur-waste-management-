@@ -1,0 +1,27 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1784039167093,
+      "tag": "0000_stale_multiple_man",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1784039875172,
+      "tag": "0001_outstanding_squadron_sinister",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1784194307430,
+      "tag": "0002_sweet_viper",
+      "breakpoints": true
+    }
+  ]
+}
