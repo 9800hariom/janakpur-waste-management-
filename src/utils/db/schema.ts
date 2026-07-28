@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { integer, text, sqliteTable } from "drizzle-orm/sqlite-core";
+import { integer, text, sqliteTable, real } from "drizzle-orm/sqlite-core";
 
 // Users table
 export const Users = sqliteTable("users", {
@@ -23,11 +23,16 @@ export const Users = sqliteTable("users", {
   updatedAt: integer("updated_at", { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
 });
 
-// Reports table
+// Reports table — with GPS fields for citizen submission and collector verification
 export const Reports = sqliteTable("reports", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   userId: integer("user_id").references(() => Users.id).notNull(),
   location: text("location").notNull(),
+  // Citizen GPS at report time
+  latitude: real("latitude"),
+  longitude: real("longitude"),
+  formattedAddress: text("formatted_address"),
+  wardNumber: text("ward_number"),
   wasteType: text("waste_type").notNull(),
   amount: text("amount").notNull(),
   imageUrl: text("image_url"),
@@ -35,9 +40,15 @@ export const Reports = sqliteTable("reports", {
   status: text("status").notNull().default("pending"),
   createdAt: integer("created_at", { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
   collectorId: integer("collector_id").references(() => Users.id),
+  // Collector GPS at collection time
+  collectorLat: real("collector_lat"),
+  collectorLng: real("collector_lng"),
+  collectorVerifiedAt: integer("collector_verified_at", { mode: 'timestamp' }),
+  locationVerified: integer("location_verified", { mode: 'boolean' }).default(false),
+  distanceMeters: integer("distance_meters"),
 });
 
-// Rewards table
+// Rewards table — for Citizens only (reward catalogue items created by admin)
 export const Rewards = sqliteTable("rewards", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   userId: integer("user_id").references(() => Users.id).notNull(),
@@ -70,11 +81,11 @@ export const Notifications = sqliteTable("notifications", {
   createdAt: integer("created_at", { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
 });
 
-// Transactions table
+// Transactions table — Citizens only for reward history
 export const Transactions = sqliteTable("transactions", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   userId: integer("user_id").references(() => Users.id).notNull(),
-  type: text("type").notNull(), // 'earned' or 'redeemed'
+  type: text("type").notNull(), // 'earned_report_verified', 'earned_daily_login', 'referral_reward', 'redeemed'
   amount: integer("amount").notNull(),
   description: text("description").notNull(),
   date: integer("date", { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
@@ -106,5 +117,18 @@ export const ActivityLogs = sqliteTable("activity_logs", {
   targetTable: text("target_table"),
   targetId: integer("target_id"),
   details: text("details", { mode: 'json' }),
+  createdAt: integer("created_at", { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
+});
+
+// AI Verification History table
+export const AiVerificationHistory = sqliteTable("ai_verification_history", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  reportId: integer("report_id").references(() => Reports.id).notNull(),
+  checkerId: integer("checker_id").references(() => Users.id), // Nullable for citizen report
+  checkType: text("check_type").notNull(), // 'citizen_report', 'collector_verify'
+  fullResult: text("full_result", { mode: 'json' }).notNull(),
+  imageUrl: text("image_url"),
+  verificationStatus: text("verification_status").notNull(), // 'Verified', 'Suspicious', etc.
+  finalDecision: text("final_decision").notNull(), // 'Accept Report', 'Needs Manual Review', 'Reject Report'
   createdAt: integer("created_at", { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
 });

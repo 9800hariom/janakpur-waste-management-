@@ -1,6 +1,6 @@
 'use client'
 import { useState, useEffect, useRef } from 'react'
-import { GoogleGenerativeAI } from '@google/generative-ai'
+import { callGemini } from '@/utils/geminiHelper'
 import { Send, Loader2, Bot, User, Sparkles, MessageSquare, ArrowRight, Trash2 } from 'lucide-react'
 
 type Message = {
@@ -42,18 +42,9 @@ export default function MessagesPage() {
     setInput('')
 
     try {
-      const API_KEY = process.env.NEXT_PUBLIC_GOOGLE_AI_API_KEY || process.env.NEXT_PUBLIC_GEMINI_API_KEY
-      if (!API_KEY) throw new Error('API key is missing from environment variables.')
+      const systemPrefix = "You are Smart Janakpur Waste Management AI, a friendly and encouraging waste management and recycling expert. Answer waste disposal questions, give recyclability advice, and explain the positive environmental impacts of recycling. Keep responses concise, clear, and action-oriented.\n\nUser question: "
 
-      const genAI = new GoogleGenerativeAI(API_KEY)
-      // Use gemini-1.5-flash with system instruction for a waste expert persona
-      const model = genAI.getGenerativeModel({ 
-        model: "gemini-3.5-flash",
-        systemInstruction: "You are Smart Janakpur Waste Management AI, a friendly, encouraging waste management and recycling expert. Answer waste disposal questions, give recyclability advice, and explain the positive environmental impacts of recycling. Keep responses concise, clear, and action-oriented."
-      })
-
-      const result = await model.generateContent(textToSend.trim())
-      const responseText = result.response.text()
+      const responseText = await callGemini(systemPrefix + textToSend.trim())
 
       const assistantMessage: Message = { role: 'assistant', content: responseText }
       setMessages(prev => [...prev, assistantMessage])

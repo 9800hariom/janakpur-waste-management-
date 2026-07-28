@@ -80,14 +80,24 @@ export default function Home() {
   return (
     <div className={`relative min-h-screen ${poppins.className}`}>
       {/* Full Screen Fixed Background */}
-      <div className="fixed inset-0 z-0">
-        <Image
-          src="/smart janakpur.png"
-          alt="Background"
-          fill
-          style={{ objectFit: 'cover', objectPosition: 'center' }}
-          priority
-        />
+      <div className="relative h-[120vh]">
+        <div className="sticky top-20 overflow-hidden">
+          <video
+            src="vedio1.mp4"
+            autoPlay
+            muted
+            loop
+            playsInline
+            className="
+        w-full 
+        h-[500px] 
+        object-cover
+        transition-transform
+        duration-700
+        hover:-translate-y-10
+      "
+          />
+        </div>
       </div>
 
       {/* Main Content */}

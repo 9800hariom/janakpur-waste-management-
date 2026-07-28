@@ -1,76 +1,105 @@
+
+
+'use client'
+
 import Link from "next/link"
-import { usePathname } from 'next/navigation'
+import { usePathname } from "next/navigation"
 import { Button } from "@/components/ui/button"
-import { MapPin, Trash, Coins, Medal, Settings, Home, Shield } from "lucide-react"
+import {
+  MapPin,
+  Trash,
+  Coins,
+  Medal,
+  Settings,
+  Home,
+  Shield,
+  X
+} from "lucide-react"
 import { useSession } from "next-auth/react"
 
 const sidebarItems = [
-  { href: "/", icon: Home, label: "Home" },
-  { href: "/report", icon: MapPin, label: "Report Waste" },
-  { href: "/collect", icon: Trash, label: "Collect Waste" },
-  { href: "/rewards", icon: Coins, label: "Rewards" },
-  { href: "/leaderboard", icon: Medal, label: "Leaderboard" },
-  { href: "/admin", icon: Shield, label: "Admin Dashboard" },
+  { href: "/", icon: Home, label: "Home", roles: ["citizen", "collector", "admin"] },
+  { href: "/report", icon: MapPin, label: "Report Waste", roles: ["citizen", "admin"] },
+  { href: "/collect", icon: Trash, label: "Collect Waste", roles: ["collector", "admin"] },
+  { href: "/rewards", icon: Coins, label: "Rewards", roles: ["citizen"] },
+  { href: "/leaderboard", icon: Medal, label: "Leaderboard", roles: ["citizen", "admin"] },
+  { href: "/admin", icon: Shield, label: "Admin Dashboard", roles: ["admin"] },
 ]
 
 interface SidebarProps {
   open: boolean
+  onClose: () => void
 }
 
-export default function Sidebar({ open }: SidebarProps) {
+export default function Sidebar({ open, onClose }: SidebarProps) {
   const pathname = usePathname()
   const { data: session } = useSession()
+
   const role = ((session?.user as any)?.role) || "citizen"
 
-  const checkActive = (href: string) => {
-    return href === pathname
-  }
-
-  const filteredItems = sidebarItems.filter(item => {
-    if (role === "admin") return true
-    if (role === "collector") {
-      return item.href !== "/report" && !item.href.startsWith("/admin")
-    }
-    // citizen
-    return item.href !== "/collect" && !item.href.startsWith("/admin")
-  })
+  const filteredItems = sidebarItems.filter(item =>
+    item.roles.includes(role)
+  )
 
   return (
-    <aside className={`bg-white border-r pt-20 border-gray-200 text-gray-800 w-64 fixed inset-y-0 left-0 z-30 transform transition-transform duration-300 ease-in-out ${open ? 'translate-x-0' : '-translate-x-full'} lg:translate-x-0`}>
-      <nav className="h-full flex flex-col justify-between">
-        <div className="px-4 py-6 space-y-2">
-          {filteredItems.map((item) => (
-            <Link key={item.href} href={item.href} passHref>
-              <Button 
-                variant={checkActive(item.href) ? "secondary" : "ghost"}
-                className={`w-full justify-start py-3 ${
-                  checkActive(item.href)
-                    ? "bg-green-100 text-green-800" 
-                    : "text-gray-600 hover:bg-gray-100"
-                }`} 
+    <>
+      {/* Background Overlay */}
+      {open && (
+        <div
+          className="fixed inset-0 bg-black/50 z-30"
+          onClick={onClose}
+        />
+      )}
+
+      {/* Sidebar */}
+      <aside
+        className={`fixed top-0 left-0 h-screen w-64 bg-white border-r border-gray-200 shadow-xl z-40 transform transition-transform duration-300 ease-in-out pt-16 ${open ? "translate-x-0" : "-translate-x-full"
+          }`}
+      >
+        {/* Header (Optional, can be removed if redundant) */}
+        <div className="flex items-center justify-between px-5 py-4 border-b">
+          <h2 className="font-bold text-lg text-green-700">
+            Smart Waste
+          </h2>
+        </div>
+
+        {/* Menu */}
+        <nav className="flex flex-col justify-between h-[calc(100%-70px)]">
+          <div className="p-4 space-y-2">
+            {filteredItems.map((item) => (
+              <Link
+                key={item.href}
+                href={item.href}
+                onClick={onClose}
               >
-                <item.icon className="mr-3 h-5 w-5" />
-                <span className="text-base">{item.label}</span>
+                <Button
+                  variant={pathname === item.href ? "secondary" : "ghost"}
+                  className={`w-full justify-start py-6 ${pathname === item.href
+                      ? "bg-green-100 text-green-700"
+                      : "hover:bg-gray-100"
+                    }`}
+                >
+                  <item.icon className="mr-3 h-5 w-5" />
+                  {item.label}
+                </Button>
+              </Link>
+            ))}
+          </div>
+
+          {/* Bottom */}
+          <div className="p-4 border-t">
+            <Link href="/settings" onClick={onClose}>
+              <Button
+                variant={pathname === "/settings" ? "secondary" : "outline"}
+                className="w-full justify-start py-6"
+              >
+                <Settings className="mr-3 h-5 w-5" />
+                Settings
               </Button>
             </Link>
-          ))}
-        </div>
-        <div className="p-4 border-t border-gray-200">
-          <Link href="/settings" passHref>
-            <Button 
-              variant={pathname === "/settings" ? "secondary" : "outline"}
-              className={`w-full py-3 ${
-                pathname === "/settings"
-                  ? "bg-green-100 text-green-800"
-                  : "text-gray-600 border-gray-300 hover:bg-gray-100"
-              }`} 
-            >
-              <Settings className="mr-3 h-5 w-5" />
-              <span className="text-base">Settings</span>
-            </Button>
-          </Link>
-        </div>
-      </nav>
-    </aside>
+          </div>
+        </nav>
+      </aside>
+    </>
   )
 }

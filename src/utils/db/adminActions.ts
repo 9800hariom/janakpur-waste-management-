@@ -200,3 +200,43 @@ export async function deleteReward(adminId: number, rewardId: number) {
     return false;
   }
 }
+
+export async function getAllCitizensPointsAndRewards() {
+  try {
+    const citizens = await db
+      .select({
+        id: Users.id,
+        name: Users.name,
+        email: Users.email,
+        rewardPoints: Users.rewardPoints,
+        role: Users.role,
+        createdAt: Users.createdAt,
+      })
+      .from(Users)
+      .where(eq(Users.role, 'citizen'))
+      .execute();
+
+    const allTransactions = await db.select().from(Transactions).orderBy(desc(Transactions.date)).execute();
+
+    return citizens.map(citizen => {
+      const userTxns = allTransactions.filter(t => t.userId === citizen.id);
+      const totalEarned = userTxns
+        .filter(t => t.type.startsWith('earned') || t.type === 'daily_login' || t.type === 'referral_reward')
+        .reduce((sum, t) => sum + t.amount, 0);
+      const totalRedeemed = userTxns
+        .filter(t => t.type === 'redeemed')
+        .reduce((sum, t) => sum + t.amount, 0);
+
+      return {
+        ...citizen,
+        totalEarned,
+        totalRedeemed,
+        recentTransactions: userTxns.slice(0, 5),
+      };
+    });
+  } catch (error) {
+    console.error("Error fetching citizens points and rewards:", error);
+    return [];
+  }
+}
+

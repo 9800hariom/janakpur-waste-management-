@@ -3,7 +3,7 @@ import { useState, useEffect, useRef } from "react"
 import Link from "next/link"
 import { usePathname } from 'next/navigation'
 import { Button } from "@/components/ui/button"
-import { Menu, Coins, Leaf, Search, Bell, User, ChevronDown, LogIn, LogOut } from "lucide-react"
+import { Menu, Coins, Leaf, Search, Bell, User, ChevronDown, LogIn, LogOut, X } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { useMediaQuery } from "@/hooks/useMediaQuery"
 import { getUnreadNotifications, markNotificationAsRead, getUserByEmail, getUserBalance } from "@/utils/db/actions"
@@ -13,9 +13,10 @@ import { useSession, signOut } from "next-auth/react"
 
 interface HeaderProps {
   onMenuClick: () => void;
+  sidebarOpen: boolean;
 }
 
-export default function Header({ onMenuClick }: HeaderProps) {
+export default function Header({ onMenuClick, sidebarOpen }: HeaderProps) {
   const { data: session, status } = useSession();
   const [notifications, setNotifications] = useState<any[]>([]);
   const isMobile = useMediaQuery("(max-width: 768px)")
@@ -134,7 +135,11 @@ export default function Header({ onMenuClick }: HeaderProps) {
       <div className="flex items-center justify-between px-2 md:px-4 py-2">
         <div className="flex items-center flex-1">
           <Button variant="ghost" size="icon" className="mr-1 md:mr-2" onClick={onMenuClick}>
-            <Menu className="h-5 w-5 md:h-6 md:w-6" />
+            {sidebarOpen ? (
+              <X className="h-5 w-5 md:h-6 md:w-6" />
+            ) : (
+              <Menu className="h-5 w-5 md:h-6 md:w-6" />
+            )}
           </Button>
           <Link href="/" className="flex items-center min-w-0">
             {/* <Leaf className="h-5 w-5 md:h-8 md:w-8 text-green-500 mr-1 md:mr-2 flex-shrink-0" /> */}
