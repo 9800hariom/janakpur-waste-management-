@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import bcrypt from "bcryptjs";
+import bcryptjs from "bcryptjs";
+const bcrypt = (bcryptjs as any).default || bcryptjs;
 import { db } from "@/utils/db/dbConfig";
 import { Users } from "@/utils/db/schema";
 import { eq } from "drizzle-orm";
@@ -96,8 +97,8 @@ export async function POST(req: Request) {
         }
       }
 
-      // Citizen email is set to phone + "@smart janakpur waste management.com" if email is empty
-      const userEmail = parsedData.email || `${parsedData.phone}@smart janakpur waste management.com`;
+      // Citizen email is set to phone + "@greenjanakpur.com" if email is empty
+      const userEmail = parsedData.email || `${parsedData.phone}@greenjanakpur.com`;
       const hashedPassword = await bcrypt.hash(parsedData.password, 10);
       
       const [user] = await db.insert(Users).values({

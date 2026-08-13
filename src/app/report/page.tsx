@@ -7,7 +7,7 @@ import { parseGeminiJson } from '@/utils/geminiClientHelper'
 import ExifReader from 'exifreader'
 import { StandaloneSearchBox, useJsApiLoader } from '@react-google-maps/api'
 import { Libraries } from '@react-google-maps/api'
-import { createUser, getUserByEmail, createReport, getRecentReports } from '@/utils/db/actions'
+import { createUser, getUserByEmail, createReport, getRecentReports, checkDuplicateImageInDb } from '@/utils/db/actions'
 import { useRouter } from 'next/navigation'
 import { toast } from 'react-hot-toast'
 import { useSession } from "next-auth/react"
@@ -29,7 +29,7 @@ export default function ReportPage() {
     createdAt: string
   }>>([])
 
-  const [newReport, setNewReport] = useState({ location: '', type: '', amount: '' })
+  const [newReport, setNewReport] = useState({ location: '', type: '' })
   const [locationGps, setLocationGps] = useState<{
     lat: number | null
     lng: number | null
@@ -48,6 +48,7 @@ export default function ReportPage() {
     reason: string
   } | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [errorMessage, setErrorMessage] = useState('')
   const [searchBox, setSearchBox] = useState<google.maps.places.SearchBox | null>(null)
 
   const { isLoaded } = useJsApiLoader({
@@ -147,6 +148,75 @@ export default function ReportPage() {
     }
   }
 
+  const handleUseCurrentLocation = () => {
+    if (!navigator.geolocation) {
+      toast.error('Geolocation is not supported by your browser.')
+      return
+    }
+    toast.loading('Detecting your GPS location...', { id: 'report-gps' })
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const lat = pos.coords.latitude
+        const lng = pos.coords.longitude
+
+        const doReverseGeocode = (geocoder: google.maps.Geocoder) => {
+          geocoder.geocode({ location: { lat, lng } }, (results, status) => {
+            if (status === 'OK' && results && results[0]) {
+              const address = results[0].formatted_address
+              const ward = results[0].address_components
+                ? extractWardFromComponents(results[0].address_components)
+                : ''
+              setNewReport(prev => ({ ...prev, location: address }))
+              setLocationGps({ lat, lng, formattedAddress: address, wardNumber: ward })
+              toast.success('Location auto-filled from GPS!', { id: 'report-gps' })
+            } else {
+              // Geocoder failed — try OpenStreetMap Nominatim as fallback
+              fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`)
+                .then(r => r.json())
+                .then(data => {
+                  const address = data.display_name || `${lat.toFixed(5)}, ${lng.toFixed(5)}`
+                  setNewReport(prev => ({ ...prev, location: address }))
+                  setLocationGps({ lat, lng, formattedAddress: address, wardNumber: '' })
+                  toast.success('Location auto-filled from GPS!', { id: 'report-gps' })
+                })
+                .catch(() => {
+                  // Last resort: show readable coords
+                  const fallback = `Lat: ${lat.toFixed(5)}, Lng: ${lng.toFixed(5)}`
+                  setNewReport(prev => ({ ...prev, location: fallback }))
+                  setLocationGps({ lat, lng, formattedAddress: fallback, wardNumber: '' })
+                  toast.success('GPS coordinates captured!', { id: 'report-gps' })
+                })
+            }
+          })
+        }
+
+        if (typeof google !== 'undefined' && google.maps && google.maps.Geocoder) {
+          doReverseGeocode(new google.maps.Geocoder())
+        } else {
+          // Google Maps not loaded — use Nominatim directly
+          fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`)
+            .then(r => r.json())
+            .then(data => {
+              const address = data.display_name || `${lat.toFixed(5)}, ${lng.toFixed(5)}`
+              setNewReport(prev => ({ ...prev, location: address }))
+              setLocationGps({ lat, lng, formattedAddress: address, wardNumber: '' })
+              toast.success('Location auto-filled from GPS!', { id: 'report-gps' })
+            })
+            .catch(() => {
+              const fallback = `Lat: ${lat.toFixed(5)}, Lng: ${lng.toFixed(5)}`
+              setNewReport(prev => ({ ...prev, location: fallback }))
+              setLocationGps({ lat, lng, formattedAddress: fallback, wardNumber: '' })
+              toast.success('GPS coordinates captured!', { id: 'report-gps' })
+            })
+        }
+      },
+      (err) => {
+        toast.error('Unable to get GPS location. Please allow location access.', { id: 'report-gps' })
+      },
+      { enableHighAccuracy: true, timeout: 10000 }
+    )
+  }
+
   const readFileAsBase64 = (file: File): Promise<string> =>
     new Promise((resolve, reject) => {
       const reader = new FileReader()
@@ -198,7 +268,7 @@ Respond ONLY in JSON (no markdown): { "isDuplicate": bool, "duplicateOfId": numb
     try {
       const base64Data = await readFileAsBase64(file)
 
-      const prompt = `You are Smart Janakpur AI, an expert environmental waste inspection assistant.
+      const prompt = `You are green Janakpur AI, an expert environmental waste inspection assistant.
 
 Your task is to analyze a waste image using computer vision and return ONLY valid JSON.
 
@@ -261,81 +331,20 @@ Output Schema:
 
       const text = await analyzeImages(prompt, [{ base64: base64Data, mimeType: file.type }])
       
+      if (!text) {
+        setErrorMessage('AI analysis returned no response. This could be due to slow internet or API rate limits. Please try again.')
+        setVerificationStatus('failure')
+        return
+      }
+
       let parsedResult: any
       try {
         parsedResult = parseGeminiJson(text)
       } catch (jsonErr) {
-        console.warn("Gemini output was not valid JSON, using simulated fallback:", jsonErr)
-        parsedResult = {
-          success: true,
-          analysis: {
-            sceneType: "Roadside Public Area",
-            overallCondition: "Accumulation of unsegregated municipal solid waste along the pedestrian walkway with visible organic decay and scattered recyclable plastics.",
-            confidence: 94,
-            wasteObjects: [
-              {
-                name: "PET Beverage Bottles",
-                category: "Plastic",
-                quantity: 12,
-                estimatedWeightKg: 0.4,
-                material: "Polyethylene Terephthalate (PET)",
-                condition: "Crushed and slightly soiled",
-                recyclable: true,
-                confidence: 96
-              },
-              {
-                name: "Single-use Plastic Bags",
-                category: "Plastic",
-                quantity: 8,
-                estimatedWeightKg: 0.2,
-                material: "Low-Density Polyethylene (LDPE)",
-                condition: "Torn and contaminated",
-                recyclable: false,
-                confidence: 89
-              },
-              {
-                name: "Cardboard Packaging Box",
-                category: "Cardboard",
-                quantity: 2,
-                estimatedWeightKg: 1.1,
-                material: "Corrugated Cardboard",
-                condition: "Damp and flattened",
-                recyclable: true,
-                confidence: 94
-              },
-              {
-                name: "Organic Food Scraps",
-                category: "Organic",
-                quantity: 15,
-                estimatedWeightKg: 3.5,
-                material: "Biodegradable Food Waste",
-                condition: "Decomposing",
-                recyclable: false,
-                confidence: 91
-              }
-            ],
-            estimatedTotalWeightKg: 5.2,
-            estimatedTotalItems: 37,
-            primaryWasteType: "Organic",
-            secondaryWasteType: "Plastic",
-            cleanliness: "Dirty",
-            collectionPriority: "High",
-            environmentRisk: "High risk of localized drainage blockage and odor emission due to decomposing organic matter mixed with plastics.",
-            hazards: ["Broken Glass", "Biohazard"],
-            recyclingSuggestions: [
-              "Separate PET beverage bottles and rinse lightly before recycling.",
-              "Flatten and dry corrugated cardboard boxes.",
-              "Divert organic waste to municipal composting facilities."
-            ],
-            recommendedActions: [
-              "Dispatch a municipal collection crew within 24 hours.",
-              "Conduct on-site sorting to separate valuable recyclables from general waste.",
-              "Sanitize the surface post-collection to remove organic residue."
-            ],
-            generatedDescription: "The uploaded image contains a roadside pile of mixed waste consisting of decomposing organic food scraps, PET plastic bottles, torn plastic bags, and damp cardboard packaging. Immediate collection is recommended.",
-            summary: "High-priority unsegregated waste accumulation detected along a roadside area. Immediate collection required due to hygiene hazards, with strong potential for plastic and cardboard recovery."
-          }
-        }
+        console.error("Gemini output was not valid JSON:", jsonErr)
+        setErrorMessage('AI returned an unexpected response. Please try again.')
+        setVerificationStatus('failure')
+        return
       }
 
       if (parsedResult) {
@@ -385,30 +394,34 @@ Output Schema:
         }
 
         setVerificationResult(normalizedResult)
+        // Only auto-fill waste type from AI — do NOT auto-fill amount
         setNewReport(prev => ({
           ...prev,
           type: normalizedResult.wasteCategory,
-          amount: `${normalizedResult.estimatedWeightKg} kg`
         }))
 
-        if (normalizedResult.isDuplicate) {
+        const dbDupCheck = await checkDuplicateImageInDb(base64Data)
+
+        if (normalizedResult.isDuplicate || dbDupCheck.isDuplicate) {
           setDuplicateWarning({
             isDuplicate: true,
-            duplicateOfId: normalizedResult.similarReportId,
+            duplicateOfId: dbDupCheck.duplicateOfId || normalizedResult.similarReportId,
             confidence: (normalizedResult.duplicateConfidence || 100) / 100,
-            reason: `Highly similar to previous reports (${normalizedResult.similarityPercentage || 90}% similarity).`
+            reason: dbDupCheck.reason || `This image is duplicate (highly similar to previous report #${normalizedResult.similarReportId}).`
           })
-          toast.error(`Potential duplicate detected by AI!`, { duration: 5000 })
+          toast.error(`This image is duplicate! You cannot submit duplicate images.`, { duration: 5000 })
         } else {
           setDuplicateWarning(null)
         }
 
         setVerificationStatus('success')
       } else {
+        setErrorMessage('Could not analyze the image. Please try again.')
         setVerificationStatus('failure')
       }
     } catch (error) {
       console.error('Verification error:', error)
+      setErrorMessage('Network error — please check your internet connection and try again.')
       setVerificationStatus('failure')
     }
   }
@@ -419,6 +432,20 @@ Output Schema:
       toast.error('Please verify the waste image before submitting.')
       return
     }
+    // Use AI estimated weight as amount fallback
+    const submittedAmount = verificationResult?.estimatedWeightKg
+      ? `${verificationResult.estimatedWeightKg} kg`
+      : 'Unknown'
+
+    if (duplicateWarning?.isDuplicate) {
+      toast.error('This image is duplicate! Report submission is blocked.')
+      return
+    }
+
+    if (verificationResult?.wasteDetected === false) {
+      toast.error('No waste detected in this image! Report submission is blocked.')
+      return
+    }
 
     setIsSubmitting(true)
     try {
@@ -426,7 +453,7 @@ Output Schema:
         user.id,
         newReport.location,
         newReport.type,
-        newReport.amount,
+        submittedAmount,
         preview || undefined,
         verificationResult || undefined,
         locationGps.lat ?? undefined,
@@ -446,7 +473,7 @@ Output Schema:
       }
 
       setReports([formattedReport, ...reports])
-      setNewReport({ location: '', type: '', amount: '' })
+      setNewReport({ location: '', type: '' })
       setLocationGps({ lat: null, lng: null, formattedAddress: '', wardNumber: '' })
       setFile(null)
       setPreview(null)
@@ -473,6 +500,13 @@ Output Schema:
           fetchedUser = await createUser(session.user.email, session.user.name || 'Anonymous')
         }
         setUser(fetchedUser)
+
+        if (fetchedUser?.wardNumber) {
+          setLocationGps(prev => ({
+            ...prev,
+            wardNumber: prev.wardNumber || fetchedUser.wardNumber || ''
+          }))
+        }
 
         const recentReports = await getRecentReports()
         setReports(recentReports.map(r => ({
@@ -541,7 +575,14 @@ Output Schema:
         {verificationStatus === 'failure' && (
           <div className="mb-6 bg-red-50 border border-red-200 p-4 rounded-xl text-red-800 text-sm">
             <p className="font-bold">Analysis Failed</p>
-            <p className="text-xs mt-1">Please configure a valid Gemini API key and try again.</p>
+            <p className="text-xs mt-1">{errorMessage || 'Something went wrong. Please try again.'}</p>
+            <button
+              type="button"
+              onClick={handleVerify}
+              className="mt-2 px-4 py-1.5 bg-red-600 hover:bg-red-700 text-white text-xs rounded-lg font-semibold transition-colors"
+            >
+              🔄 Retry Analysis
+            </button>
           </div>
         )}
 
@@ -558,7 +599,7 @@ Output Schema:
                 </div>
                 <div>
                   <h3 className="text-xl font-extrabold text-gray-900 tracking-tight">AI Waste Analysis Report</h3>
-                  <p className="text-xs text-gray-500 mt-0.5 font-medium">Smart Janakpur Waste Analysis Assistant</p>
+                  <p className="text-xs text-gray-500 mt-0.5 font-medium">green Janakpur Waste Analysis Assistant</p>
                 </div>
               </div>
               <div className="flex items-center gap-2">
@@ -591,6 +632,22 @@ Output Schema:
                 <div>
                   <p className="text-sm font-bold text-amber-900">Duplicate Report Identified</p>
                   <p className="text-xs text-amber-800 mt-1 font-medium">Similar to Report #{duplicateWarning.duplicateOfId} with {(duplicateWarning.confidence * 100).toFixed(0)}% matching details. {duplicateWarning.reason}</p>
+                </div>
+              </div>
+            )}
+
+            {/* AI Warning Box for No Waste Detected */}
+            {verificationResult.wasteDetected === false && (
+              <div className="bg-gradient-to-r from-red-50 to-rose-50 border-2 border-red-500 rounded-2xl p-5 mb-6 flex items-start gap-3 text-red-900 shadow-md">
+                <AlertCircle className="h-7 w-7 text-red-600 mt-0.5 flex-shrink-0 animate-pulse" />
+                <div>
+                  <h4 className="text-base font-black text-red-900 uppercase tracking-tight">No Waste Detected in Image</h4>
+                  <p className="text-xs font-bold text-red-800 mt-1">
+                    AI analysis found no waste in this image. You cannot submit a waste report without an image showing actual waste.
+                  </p>
+                  <p className="text-[11px] font-bold text-red-700 mt-2 bg-red-100 px-2.5 py-1 rounded-lg inline-block">
+                    🚫 Report Submission BLOCKED: Please upload a clear photo containing waste.
+                  </p>
                 </div>
               </div>
             )}
@@ -807,9 +864,17 @@ Output Schema:
         {/* Location + Fields */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-5 mb-6">
           <div className="md:col-span-2">
-            <label className="block text-sm font-semibold text-gray-700 mb-1">
-              Location <span className="text-green-600 text-xs font-normal">(Search or select on map)</span>
-            </label>
+            <div className="flex items-center justify-between mb-1">
+              <label className="block text-sm font-semibold text-gray-700">Reported Waste Address</label>
+              <button
+                type="button"
+                onClick={handleUseCurrentLocation}
+                className="text-xs bg-blue-50 hover:bg-blue-100 text-blue-700 font-semibold px-2.5 py-1 rounded-lg border border-blue-200 flex items-center gap-1 transition-colors"
+              >
+                <Navigation className="w-3 h-3 text-blue-600" />
+                Use My Current GPS
+              </button>
+            </div>
             {isLoaded ? (
               <StandaloneSearchBox onLoad={onLoad} onPlacesChanged={onPlacesChanged}>
                 <input
@@ -819,7 +884,7 @@ Output Schema:
                   onChange={handleInputChange}
                   required
                   className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-green-400 text-sm shadow-sm"
-                  placeholder="Search for waste location..."
+                  placeholder="Enter or search reported waste address..."
                 />
               </StandaloneSearchBox>
             ) : (
@@ -830,7 +895,7 @@ Output Schema:
                 onChange={handleInputChange}
                 required
                 className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-green-400 text-sm shadow-sm"
-                placeholder="Enter waste location"
+                placeholder="Enter or search reported waste address..."
               />
             )}
             {locationGps.lat && (
@@ -842,21 +907,28 @@ Output Schema:
             )}
           </div>
 
-          {/* GPS Coordinates Input */}
+          {/* GPS Coordinates — shows full address auto-filled from GPS */}
           <div>
-            <label className="block text-sm font-semibold text-gray-700 mb-1">GPS Coordinates</label>
+            <label className="block text-sm font-semibold text-gray-700 mb-1">GPS Location (Auto-filled)</label>
             <input
               type="text"
               name="gpsCoordinates"
-              value={locationGps.lat ? `${locationGps.lat.toFixed(6)}, ${locationGps.lng?.toFixed(6)}` : ''}
+              value={locationGps.formattedAddress || (locationGps.lat ? `Lat: ${locationGps.lat.toFixed(5)}, Lng: ${locationGps.lng?.toFixed(5)}` : '')}
               readOnly
               className="w-full px-4 py-2.5 border border-gray-200 rounded-xl bg-gray-50 text-sm text-gray-600 shadow-sm"
-              placeholder="Auto-filled by Photo/Map"
+              placeholder="Auto-filled when GPS is captured"
             />
+            {locationGps.lat && (
+              <p className="mt-1 text-[11px] text-gray-400 font-mono">
+                📍 {locationGps.lat.toFixed(5)}, {locationGps.lng?.toFixed(5)}
+                {locationGps.wardNumber && ` · Ward ${locationGps.wardNumber}`}
+              </p>
+            )}
           </div>
 
+          {/* Waste Type — auto-filled by AI */}
           <div>
-            <label className="block text-sm font-semibold text-gray-700 mb-1">Waste Type</label>
+            <label className="block text-sm font-semibold text-gray-700 mb-1">Waste Type <span className="text-[11px] text-blue-500 font-normal">(Auto-filled by AI)</span></label>
             <input
               type="text"
               name="type"
@@ -865,47 +937,41 @@ Output Schema:
               required
               readOnly
               className="w-full px-4 py-2.5 border border-gray-200 rounded-xl bg-gray-50 text-sm text-gray-600 shadow-sm"
-              placeholder="Auto-filled by AI"
+              placeholder="Analyze image first to auto-fill"
             />
           </div>
 
+          {/* Ward Number — auto-filled by GPS/Map */}
           <div>
-            <label className="block text-sm font-semibold text-gray-700 mb-1">Estimated Amount</label>
-            <input
-              type="text"
-              name="amount"
-              value={newReport.amount}
-              onChange={handleInputChange}
-              required
-              readOnly
-              className="w-full px-4 py-2.5 border border-gray-200 rounded-xl bg-gray-50 text-sm text-gray-600 shadow-sm"
-              placeholder="Auto-filled by AI"
-            />
-          </div>
-
-          {/* Ward Number Input */}
-          <div>
-            <label className="block text-sm font-semibold text-gray-700 mb-1">Ward Number</label>
+            <label className="block text-sm font-semibold text-gray-700 mb-1">Ward Number <span className="text-[11px] text-blue-500 font-normal">(Auto-filled by GPS)</span></label>
             <input
               type="text"
               name="ward"
               value={locationGps.wardNumber || ''}
               readOnly
               className="w-full px-4 py-2.5 border border-gray-200 rounded-xl bg-gray-50 text-sm text-gray-600 shadow-sm"
-              placeholder="Auto-filled by Map"
+              placeholder="Auto-filled by Map/GPS"
             />
           </div>
         </div>
 
         <Button
           type="submit"
-          className="w-full bg-green-600 hover:bg-green-700 text-white py-3 rounded-xl font-bold text-sm flex items-center justify-center gap-2"
-          disabled={isSubmitting || verificationStatus !== 'success'}
+          className={`w-full py-3.5 text-sm font-extrabold rounded-xl text-white transition-all flex items-center justify-center gap-2 shadow-md ${
+            verificationResult?.wasteDetected === false || duplicateWarning?.isDuplicate
+              ? 'bg-red-300 text-red-900 border border-red-400 cursor-not-allowed opacity-80'
+              : 'bg-green-600 hover:bg-green-700'
+          }`}
+          disabled={isSubmitting || verificationStatus !== 'success' || duplicateWarning?.isDuplicate || verificationResult?.wasteDetected === false}
         >
           {isSubmitting ? (
             <><Loader className="animate-spin h-4 w-4" /> Submitting Report...</>
+          ) : verificationResult?.wasteDetected === false ? (
+            <>🚫 Submit Blocked: No Waste Detected</>
+          ) : duplicateWarning?.isDuplicate ? (
+            <>🚫 Submit Blocked: Duplicate Image</>
           ) : (
-            <><MapPin className="h-4 w-4" /> Submit Waste Report</>
+            <><MapPin className="h-4 w-4" /> Submit Waste Report (+20 Points)</>
           )}
         </Button>
       </form>
@@ -917,7 +983,7 @@ Output Schema:
           <table className="w-full">
             <thead className="bg-gray-50 sticky top-0 border-b border-gray-100">
               <tr>
-                {['Location', 'Type', 'Amount', 'Date'].map(h => (
+                {['Reported Address', 'Type', 'Amount', 'Date'].map(h => (
                   <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">{h}</th>
                 ))}
               </tr>

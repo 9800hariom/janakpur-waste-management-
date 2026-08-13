@@ -73,7 +73,7 @@ export function SettingsManager({ currentAdminId }: { currentAdminId: number }) 
               <label className="block text-sm font-medium text-gray-700 mb-1">Platform Name</label>
               <div className="flex gap-2">
                 <Input 
-                  defaultValue={settings['platform_name'] || 'Smart Waste Management'} 
+                  defaultValue={settings['platform_name'] || 'green Waste Management'} 
                   id="platform_name"
                 />
                 <Button onClick={() => handleSaveSetting('platform_name', (document.getElementById('platform_name') as HTMLInputElement).value)}>Save</Button>

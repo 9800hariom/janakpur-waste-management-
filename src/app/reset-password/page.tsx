@@ -97,7 +97,7 @@ function ResetPasswordPageInner() {
         <div className="flex justify-center mb-8">
           <Link href="/" className="flex items-center">
             <Leaf className="h-10 w-10 text-green-500 mr-2" />
-            <span className="font-bold text-2xl text-gray-800">Smart Janakpur Waste Management</span>
+            <span className="font-bold text-2xl text-gray-800">green Janakpur Waste Management</span>
           </Link>
         </div>
         

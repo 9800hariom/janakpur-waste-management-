@@ -18,7 +18,7 @@ const citizenSchema = z.object({
   address: z.string().min(1, "Address is required"),
   wardNumber: z.string().min(1, "Ward Number is required").regex(/^\d+$/, "Ward Number must be numeric"),
   email: z.string().email("Invalid email address").optional().or(z.literal("")),
-  phone: z.string().min(7, "Phone number must be at least 7 digits").max(15, "Phone number is too long").optional().or(z.literal("")),
+  phone: z.string().regex(/^\d{10}$/, "Mobile number must be exactly 10 numeric digits").optional().or(z.literal("")),
   password: z.string()
     .min(8, "Password must be at least 8 characters")
     .regex(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]/, 
@@ -38,7 +38,7 @@ const collectorSchema = z.object({
   address: z.string().min(1, "Address is mandatory"),
   wardNumber: z.string().min(1, "Ward Number is mandatory").regex(/^\d+$/, "Ward Number must be numeric"),
   governmentId: z.string().min(1, "Government ID or Employee ID is mandatory"),
-  phone: z.string().min(7, "Phone Number must be at least 7 digits").max(15, "Phone number is too long"),
+  phone: z.string().min(1, "Phone Number is required").regex(/^\d{10}$/, "Mobile number must be exactly 10 numeric digits"),
   email: z.string().email("Valid Email is mandatory"),
   password: z.string()
     .min(8, "Password must be at least 8 characters")
@@ -150,7 +150,7 @@ export default function RegisterPage() {
         <div className="flex justify-center mb-6">
           <Link href="/" className="flex items-center space-x-2">
             <Leaf className="h-9 w-9 text-green-600 animate-pulse" />
-            <span className="font-bold text-2xl text-gray-800 tracking-tight">Smart Janakpur Waste Management</span>
+            <span className="font-bold text-2xl text-gray-800 tracking-tight">green Janakpur Waste Management</span>
           </Link>
         </div>
 
@@ -210,7 +210,7 @@ export default function RegisterPage() {
                 <div className="relative mt-1">
                   <Input
                     id="c-address"
-                    placeholder="New Baneshwor"
+                    placeholder="Janakpur"
                     {...citizenForm.register("address")}
                     className={`pl-9 py-5 rounded-xl ${citizenForm.formState.errors.address ? "border-red-500" : ""}`}
                   />
@@ -224,7 +224,10 @@ export default function RegisterPage() {
                 <div className="relative mt-1">
                   <Input
                     id="c-ward"
-                    placeholder="10"
+                    type="number"
+                    inputMode="numeric"
+                    maxLength={25}
+                    placeholder="1 to 25"
                     {...citizenForm.register("wardNumber")}
                     className={`pl-9 py-5 rounded-xl ${citizenForm.formState.errors.wardNumber ? "border-red-500" : ""}`}
                   />
@@ -248,12 +251,19 @@ export default function RegisterPage() {
               </div>
 
               <div>
-                <Label htmlFor="c-phone" className="text-xs font-semibold text-gray-600">Phone Number (Optional if Email is set)</Label>
+                <Label htmlFor="c-phone" className="text-xs font-semibold text-gray-600">Mobile Number (10 Digits Only)</Label>
                 <div className="relative mt-1">
                   <Input
                     id="c-phone"
+                    type="text"
+                    inputMode="numeric"
+                    maxLength={10}
                     placeholder="9876543210"
                     {...citizenForm.register("phone")}
+                    onChange={(e) => {
+                      const numericOnly = e.target.value.replace(/\D/g, '').slice(0, 10);
+                      citizenForm.setValue("phone", numericOnly, { shouldValidate: true });
+                    }}
                     className={`pl-9 py-5 rounded-xl ${citizenForm.formState.errors.phone ? "border-red-500" : ""}`}
                   />
                   <Phone className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
@@ -320,7 +330,7 @@ export default function RegisterPage() {
               <div className="relative mt-1">
                 <Input
                   id="col-name"
-                  placeholder="Ram Bahadur"
+                  placeholder="Name"
                   {...collectorForm.register("name")}
                   className={`pl-9 py-5 rounded-xl ${collectorForm.formState.errors.name ? "border-red-500" : ""}`}
                 />
@@ -335,7 +345,7 @@ export default function RegisterPage() {
                 <div className="relative mt-1">
                   <Input
                     id="col-address"
-                    placeholder="Kalimati"
+                    placeholder="Janakpur"
                     {...collectorForm.register("address")}
                     className={`pl-9 py-5 rounded-xl ${collectorForm.formState.errors.address ? "border-red-500" : ""}`}
                   />
@@ -349,7 +359,9 @@ export default function RegisterPage() {
                 <div className="relative mt-1">
                   <Input
                     id="col-ward"
-                    placeholder="12"
+                    type="number"
+                    inputMode="numeric"
+                    placeholder="1 To 25 "
                     {...collectorForm.register("wardNumber")}
                     className={`pl-9 py-5 rounded-xl ${collectorForm.formState.errors.wardNumber ? "border-red-500" : ""}`}
                   />
@@ -364,6 +376,8 @@ export default function RegisterPage() {
                 <Label htmlFor="col-gov" className="text-xs font-semibold text-gray-600">Government ID / Employee ID</Label>
                 <Input
                   id="col-gov"
+                 
+                  inputMode="numeric"
                   placeholder="ID-98765"
                   {...collectorForm.register("governmentId")}
                   className={`py-5 rounded-xl mt-1 ${collectorForm.formState.errors.governmentId ? "border-red-500" : ""}`}
@@ -372,12 +386,19 @@ export default function RegisterPage() {
               </div>
 
               <div>
-                <Label htmlFor="col-phone" className="text-xs font-semibold text-gray-600">Phone Number</Label>
+                <Label htmlFor="col-phone" className="text-xs font-semibold text-gray-600">Mobile Number (10 Digits Only)</Label>
                 <div className="relative mt-1">
                   <Input
                     id="col-phone"
+                    type="text"
+                    inputMode="numeric"
+                    maxLength={10}
                     placeholder="9812345678"
                     {...collectorForm.register("phone")}
+                    onChange={(e) => {
+                      const numericOnly = e.target.value.replace(/\D/g, '').slice(0, 10);
+                      collectorForm.setValue("phone", numericOnly, { shouldValidate: true });
+                    }}
                     className={`pl-9 py-5 rounded-xl ${collectorForm.formState.errors.phone ? "border-red-500" : ""}`}
                   />
                   <Phone className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />

@@ -1,12 +1,18 @@
-import NextAuth from "next-auth";
-import CredentialsProvider from "next-auth/providers/credentials";
+export const dynamic = "force-dynamic";
+
+import NextAuthModule from "next-auth";
+import CredentialsProviderModule from "next-auth/providers/credentials";
 import { getUserByEmail } from "@/utils/db/actions";
-import bcrypt from "bcryptjs";
+import bcryptjs from "bcryptjs";
 import { db } from "@/utils/db/dbConfig";
 import { Users } from "@/utils/db/schema";
 import { eq } from "drizzle-orm";
 
-const handler = NextAuth({
+const NextAuth = (NextAuthModule as any).default || NextAuthModule;
+const CredentialsProvider = (CredentialsProviderModule as any).default || CredentialsProviderModule;
+const bcrypt = (bcryptjs as any).default || bcryptjs;
+
+const authOptions: any = {
   providers: [
     CredentialsProvider({
       name: "Credentials",
@@ -14,7 +20,7 @@ const handler = NextAuth({
         email: { label: "Email or Phone", type: "text" },
         password: { label: "Password", type: "password" }
       },
-      async authorize(credentials, req) {
+      async authorize(credentials: any, req: any) {
         if (!credentials?.email || !credentials?.password) {
           return null;
         }
@@ -23,12 +29,13 @@ const handler = NextAuth({
         let user = null;
 
         // Auto-provision admin if it's the first time
-        if (emailOrPhone === "admin@smart janakpur waste management.com") {
-          const existingAdmin = await getUserByEmail(emailOrPhone);
+        const isDefaultAdminEmail = emailOrPhone === "admin@greenjanakpur.com" || emailOrPhone === "admin@green janakpur waste management.com";
+        if (isDefaultAdminEmail) {
+          const existingAdmin = (await getUserByEmail("admin@greenjanakpur.com")) || (await getUserByEmail("admin@green janakpur waste management.com"));
           if (!existingAdmin) {
             const hashedAdminPassword = await bcrypt.hash("Admin@123", 10);
             const [newAdmin] = await db.insert(Users).values({
-              email: emailOrPhone,
+              email: "admin@greenjanakpur.com",
               name: "System Admin",
               fullName: "System Admin",
               password: hashedAdminPassword,
@@ -74,13 +81,13 @@ const handler = NextAuth({
     signIn: "/login",
   },
   callbacks: {
-    async jwt({ token, user }) {
+    async jwt({ token, user }: any) {
       if (user) {
         token.role = (user as any).role;
       }
       return token;
     },
-    async session({ session, token }) {
+    async session({ session, token }: any) {
       if (token && session.user) {
         session.user.id = token.sub as string;
         (session.user as any).role = token.role;
@@ -88,6 +95,8 @@ const handler = NextAuth({
       return session;
     },
   },
-});
+};
+
+const handler = NextAuth(authOptions);
 
 export { handler as GET, handler as POST };

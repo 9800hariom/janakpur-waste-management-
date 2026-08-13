@@ -4,7 +4,7 @@ import { Trash2, MapPin, CheckCircle, Clock, ArrowRight, Upload, Loader, Calenda
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { toast } from 'react-hot-toast'
-import { getWasteCollectionTasks, updateTaskStatus, updateTaskStatusWithLocation, saveCollectedWaste, getUserByEmail, createNotification } from '@/utils/db/actions'
+import { getWasteCollectionTasks, updateTaskStatus, updateTaskStatusWithLocation, saveCollectedWaste, getUserByEmail, createNotification, checkDuplicateImageInDb } from '@/utils/db/actions'
 import { analyzeImages } from '@/utils/geminiHelper'
 import { parseGeminiJson } from '@/utils/geminiClientHelper'
 import { useSession } from "next-auth/react"
@@ -86,11 +86,31 @@ export default function CollectPage() {
     }
   }
 
+const checkIsSameImage = (img1?: string | null, img2?: string | null): boolean => {
+  if (!img1 || !img2) return false
+  const clean1 = (img1.includes(',') ? img1.split(',')[1] : img1).trim()
+  const clean2 = (img2.includes(',') ? img2.split(',')[1] : img2).trim()
+  if (clean1 === clean2) return true
+  if (clean1.length > 300 && clean2.length > 300) {
+    if (clean1.slice(0, 300) === clean2.slice(0, 300) || clean1.slice(-300) === clean2.slice(-300)) return true
+  }
+  return false
+}
+
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (file) {
       const reader = new FileReader()
-      reader.onloadend = () => setVerificationImage(reader.result as string)
+      reader.onloadend = () => {
+        const uploadedBase64 = reader.result as string
+        setVerificationImage(uploadedBase64)
+        setVerificationStatus('idle')
+        setVerificationResult(null)
+
+        if (selectedTask?.imageUrl && checkIsSameImage(selectedTask.imageUrl, uploadedBase64)) {
+          toast.error("Duplicate Image! Cleanup photo is identical to the Before (Reported) photo.", { duration: 6000 })
+        }
+      }
       reader.readAsDataURL(file)
     }
   }
@@ -115,7 +135,29 @@ export default function CollectPage() {
       return
     }
 
-    // Step 1: Get Collector GPS
+    // Step 1: Immediate duplicate check between Before and After images
+    if (selectedTask.imageUrl && checkIsSameImage(selectedTask.imageUrl, verificationImage)) {
+      toast.error("Cannot submit: Before and After images are identical! (Duplicate Image)", { duration: 6000 })
+      return
+    }
+
+    let isDuplicateClient = false
+    let duplicateReasonStr = ''
+
+    if (selectedTask.imageUrl && checkIsSameImage(selectedTask.imageUrl, verificationImage)) {
+      isDuplicateClient = true
+      duplicateReasonStr = "This image is duplicate. Uploaded cleanup photo is identical to the original report photo."
+    }
+
+    if (!isDuplicateClient) {
+      const dbDupCheck = await checkDuplicateImageInDb(verificationImage, selectedTask.id)
+      if (dbDupCheck.isDuplicate) {
+        isDuplicateClient = true
+        duplicateReasonStr = `This image is duplicate. ${dbDupCheck.reason || 'Matches an existing photo in the database.'}`
+      }
+    }
+
+    // Step 2: Get Collector GPS
     setGpsLoading(true)
     setGpsError(null)
     let collectorPos: GeolocationPosition
@@ -136,97 +178,128 @@ export default function CollectPage() {
     setCollectorGps({ lat: cLat, lng: cLng })
     setGpsLoading(false)
 
-    // Step 2: AI Verification
+    // Step 3: AI Verification
     setVerificationStatus('verifying')
     try {
-      // Build image list: before (if available) + after
       const images: Array<{ base64: string; mimeType?: string }> = []
       let prompt = ""
 
       if (selectedTask.imageUrl) {
         images.push({ base64: selectedTask.imageUrl })
-        images.push({ base64: verificationImage!, mimeType: 'image/jpeg' })
-        prompt = `You are an AI Waste Cleanup Verification Assistant for the Smart Janakpur Waste Management system.
+        images.push({ base64: verificationImage, mimeType: 'image/jpeg' })
+        prompt = `You are an AI Waste Cleanup Verification Assistant for the green Janakpur Waste Management system.
 Your task is to compare two uploaded images:
 1. Before Cleanup (Citizen Report, Image 1)
 2. After Cleanup (Collector Submission, Image 2)
 
-Your job is ONLY to analyze the visual differences between these two images. Never invent information that cannot be determined from the images. If you are uncertain, explicitly state "Cannot determine from image."
+Analyze carefully for:
+1. DUPLICATE IMAGE: Is Image 2 the exact same photo as Image 1, or a cropped/rotated version of Image 1, or showing the same uncleaned waste pile?
+2. CLEANNESS / WASTE REMOVAL: Is the ground/area in Image 2 completely cleaned of waste? Or is garbage/waste still visible?
 
 Return your response as valid JSON with the following structure:
-
 {
-  "verificationStatus": "Verified" | "Partially Cleaned" | "Cleanup Failed" | "Manual Review Required",
-  "confidence": 95 (percentage score between 0-100),
+  "isDuplicateImage": true/false,
+  "duplicateReason": "Brief explanation if duplicate image detected, otherwise empty",
+  "verificationStatus": "Verified" | "Duplicate Image" | "Unclean Waste Present" | "Cleanup Failed",
+  "confidence": 95,
   "cleanupCompleted": true/false,
-  "cleanupPercentage": 100 (percentage score between 0-100),
+  "cleanupPercentage": 100,
   "remainingWaste": "description of remaining waste or None",
   "wasteStillVisible": true/false,
+  "cleannessLevel": "Clean" | "Slightly Dirty" | "Dirty" | "Extremely Dirty",
   "cleanupQuality": "Excellent" | "Good" | "Fair" | "Poor",
   "matchedLocation": "Matched" | "Not Matched" | "Cannot determine from image.",
   "beforeAfterComparison": "objective observation comparing before and after backgrounds/landmarks and trash levels",
   "objectsRemoved": ["plastic bottles", "cardboard boxes", "etc"],
   "objectsRemaining": ["residual plastics", "etc"],
-  "newObjectsDetected": ["bags left behind", "etc"],
-  "environmentCondition": "Clean ground / grassy patch / etc",
-  "aiSummary": "2-4 sentence summary of what changed, what waste was removed, what remains, and why recommendation was chosen",
-  "recommendation": "Approve Cleanup" | "Manual Review" | "Reject Cleanup"
+  "environmentCondition": "Clean ground / restored surface",
+  "aiSummary": "2-4 sentence summary of cleanup result",
+  "recommendation": "Approve Cleanup" | "Reject Cleanup - Duplicate Image" | "Reject Cleanup - Waste Still Present" | "Manual Review"
 }
 
 Respond ONLY with valid JSON. Do not include markdown fences.`
       } else {
-        images.push({ base64: verificationImage!, mimeType: 'image/jpeg' })
-        prompt = `You are an AI Waste Cleanup Verification Assistant for the Smart Janakpur Waste Management system.
-Analyze the image of the clean area and return a complete JSON object:
+        images.push({ base64: verificationImage, mimeType: 'image/jpeg' })
+        prompt = `You are an AI Waste Cleanup Verification Assistant for the green Janakpur Waste Management system.
+Analyze the cleanup image and verify:
+1. DUPLICATE IMAGE: Is this image duplicate or fake?
+2. CLEANNESS: Is the site restored and clean without waste?
 
+Return valid JSON:
 {
-  "verificationStatus": "Verified" | "Partially Cleaned" | "Cleanup Failed" | "Manual Review Required",
-  "confidence": 95 (percentage score between 0-100),
+  "isDuplicateImage": false,
+  "duplicateReason": "",
+  "verificationStatus": "Verified" | "Duplicate Image" | "Unclean Waste Present",
+  "confidence": 95,
   "cleanupCompleted": true/false,
   "cleanupPercentage": 100,
   "remainingWaste": "None",
   "wasteStillVisible": false,
-  "cleanupQuality": "Excellent" | "Good" | "Fair" | "Poor",
+  "cleannessLevel": "Clean",
+  "cleanupQuality": "Excellent",
   "matchedLocation": "Matched",
   "beforeAfterComparison": "Area is verified clean.",
-  "objectsRemoved": ["general waste"],
-  "objectsRemaining": [],
-  "newObjectsDetected": [],
   "environmentCondition": "Restored ground surface",
-  "aiSummary": "The site is clean and completely free of any residual trash. The cleanup operation is approved.",
+  "aiSummary": "Site is clean and free of waste.",
   "recommendation": "Approve Cleanup"
 }
 
-Respond ONLY with valid JSON. Do not include markdown fences.`
+Respond ONLY with valid JSON.`
       }
 
       const text = await analyzeImages(prompt, images)
       const parsedResult = parseGeminiJson(text)
 
-      const confPercent = parsedResult.confidence !== undefined ? parsedResult.confidence : 90
-      const isVerified = (parsedResult.verificationStatus === 'Verified' || parsedResult.cleanupCompleted) &&
-                         parsedResult.recommendation === 'Approve Cleanup' &&
-                         parsedResult.matchedLocation !== 'Not Matched'
+      const isDuplicateFinal = isDuplicateClient || !!parsedResult.isDuplicateImage || parsedResult.verificationStatus === 'Duplicate Image' || (parsedResult.recommendation && parsedResult.recommendation.includes('Duplicate'))
+      const duplicateReasonFinal = duplicateReasonStr || parsedResult.duplicateReason || 'This image is duplicate.'
 
-      let nextStatus: 'completed' | 'pending_manual_review' = 'pending_manual_review'
-      if (isVerified && confPercent >= 90) {
-        nextStatus = 'completed'
-      }
+      const wasteStillVisible = parsedResult.wasteStillVisible === true || parsedResult.cleanupCompleted === false || (parsedResult.cleannessLevel && parsedResult.cleannessLevel !== 'Clean')
+      const isClean = !wasteStillVisible && !isDuplicateFinal
+
+      const confPercent = parsedResult.confidence !== undefined ? parsedResult.confidence : 90
 
       const normalizedResult = {
-        verified: isVerified,
+        verified: isClean && !isDuplicateFinal,
+        cleanupSuccess: isClean,
         confidence: confPercent / 100,
-        isDuplicateImage: false,
+        isDuplicateImage: isDuplicateFinal,
+        duplicateReason: duplicateReasonFinal,
+        isClean: isClean,
+        wasteStillVisible: wasteStillVisible,
+        cleannessLevel: parsedResult.cleannessLevel || (isClean ? 'Clean' : 'Unclean'),
         isDifferentLocation: parsedResult.matchedLocation === 'Not Matched',
-        cleanupQuality: parsedResult.cleanupQuality ? parsedResult.cleanupQuality.toLowerCase() : 'good',
-        observations: parsedResult.aiSummary || parsedResult.beforeAfterComparison,
-        ...parsedResult
+        cleanupQuality: parsedResult.cleanupQuality ? parsedResult.cleanupQuality.toLowerCase() : (isClean ? 'good' : 'poor'),
+        observations: parsedResult.aiSummary || parsedResult.beforeAfterComparison || 'Inspection complete.',
+        ...parsedResult,
+        verificationStatus: isDuplicateFinal 
+          ? 'Duplicate Image' 
+          : (wasteStillVisible ? 'Unclean Waste Present' : (parsedResult.verificationStatus || 'Verified')),
       }
 
       setVerificationResult(normalizedResult)
       setVerificationStatus('success')
 
-      // Step 3: Location proximity check + task completion
+      // STRICT SUBMISSION GATE: BLOCK COMPLETION IF DUPLICATE OR UNCLEAN
+      if (isDuplicateFinal) {
+        toast.error("This image is duplicate! Task completion blocked.", { duration: 6000, position: 'top-center' })
+        await saveCollectedWaste(selectedTask.id, user.id, normalizedResult, verificationImage)
+        return
+      }
+
+      if (wasteStillVisible) {
+        toast.error("Cleanness verification failed! Waste is still present.", { duration: 6000, position: 'top-center' })
+        await saveCollectedWaste(selectedTask.id, user.id, normalizedResult, verificationImage)
+        return
+      }
+
+      // Step 4: Proximity check + task status update in DB
+      let nextStatus: 'completed' | 'pending_manual_review' = 'pending_manual_review'
+      if (isClean && confPercent >= 90 && !normalizedResult.isDifferentLocation) {
+        nextStatus = 'completed'
+      } else {
+        nextStatus = 'pending_manual_review'
+      }
+
       const locationResult = await updateTaskStatusWithLocation(
         selectedTask.id, nextStatus, user.id, cLat, cLng
       )
@@ -237,26 +310,30 @@ Respond ONLY with valid JSON. Do not include markdown fences.`
           setDistanceToReport(dist)
           setGpsError(`You are ${dist}m away from the reported location. Move within ${MAX_DISTANCE_METERS}m to complete this task.`)
           toast.error(`Too far! You are ${dist} meters from the reported location.`, { duration: 6000 })
-          setVerificationStatus('idle')
           return
         }
-        toast.error('Failed to complete task. Please try again.')
+        toast.error('Failed to complete task. Please check location.')
         return
       }
 
       setDistanceToReport(locationResult.updatedReport?.distanceMeters || null)
-      await saveCollectedWaste(selectedTask.id, user.id, parsedResult)
+      await saveCollectedWaste(selectedTask.id, user.id, normalizedResult, verificationImage)
 
       if (nextStatus === 'completed') {
         if (selectedTask.userId) {
           await createNotification(selectedTask.userId, "Your waste report cleanup has been successfully completed and verified by AI!", "info")
         }
         toast.success('Cleanup verified successfully by AI! Task Completed.', { duration: 5000, position: 'top-center' })
+      } else if (normalizedResult.isDifferentLocation) {
+        if (selectedTask.userId) {
+          await createNotification(selectedTask.userId, "Your waste report requires an official Manual Inspector Site Visit due to unmatched photo location.", "info")
+        }
+        toast('Unmatched image location detected! Submitted to DB for Manual Inspector Site Visit.', { duration: 7000, position: 'top-center', icon: '⚠️' })
       } else {
         if (selectedTask.userId) {
           await createNotification(selectedTask.userId, "Your waste cleanup report requires manual administrator review.", "info")
         }
-        toast('Confidence below threshold. Task submitted for Manual Review.', { duration: 6000, position: 'top-center', icon: '⚠️' })
+        toast('Task submitted for Manual Review.', { duration: 6000, position: 'top-center', icon: '⚠️' })
       }
 
       setTasks(tasks.map(t => t.id === selectedTask.id ? { ...t, status: nextStatus } : t))
@@ -384,8 +461,8 @@ Respond ONLY with valid JSON. Do not include markdown fences.`
                       {task.wasteType.length > 15 ? `${task.wasteType.slice(0, 15)}...` : task.wasteType}
                     </span>
                   </span>
-                  <span className="flex items-center gap-1">
-                    <Weight className="w-3 h-3" />
+                  <span className="flex items-center gap-1 bg-green-50 text-green-700 px-2 py-0.5 rounded-full border border-green-200" title="AI Estimated Weight">
+                    <Sparkles className="w-3 h-3" />
                     {task.amount}
                   </span>
                   <span className="flex items-center gap-1">
@@ -458,9 +535,9 @@ Respond ONLY with valid JSON. Do not include markdown fences.`
 
             {/* Location Info */}
             <div className="bg-gray-50 border border-gray-200 rounded-xl p-3 mb-4 text-xs">
-              <div className="flex items-center gap-2 text-gray-600">
+              <div className="flex items-center gap-2 text-gray-700 font-medium">
                 <MapPin className="w-4 h-4 text-red-500 flex-shrink-0" />
-                <span><strong>Reported Location:</strong> {selectedTask.location}</span>
+                <span><strong>Reported Waste Address:</strong> {selectedTask.location}</span>
               </div>
               {selectedTask.latitude && (
                 <div className="mt-1 flex items-center gap-2 text-green-600">
@@ -528,12 +605,34 @@ Respond ONLY with valid JSON. Do not include markdown fences.`
               </div>
             )}
 
+            {/* Instant Duplicate Warning if Before & After are identical */}
+            {checkIsSameImage(selectedTask.imageUrl, verificationImage) && (
+              <div className="mb-4 bg-red-100 border-2 border-red-500 rounded-xl p-4 text-xs text-red-900 flex items-start gap-3 shadow-md">
+                <ShieldAlert className="w-6 h-6 text-red-600 flex-shrink-0 animate-pulse mt-0.5" />
+                <div>
+                  <p className="font-extrabold text-sm uppercase text-red-900">This image is duplicate</p>
+                  <p className="font-semibold text-red-800 mt-0.5">
+                    The uploaded "After (Cleanup)" image is identical to the "Before (Reported)" image.
+                  </p>
+                  <p className="font-bold text-red-700 mt-1.5 bg-red-200 px-2.5 py-1 rounded inline-block">
+                    🚫 Submission & Task Completion BLOCKED: You cannot submit the same image.
+                  </p>
+                </div>
+              </div>
+            )}
+
             <Button
               onClick={handleVerify}
-              className="w-full py-3 text-sm font-bold bg-green-600 hover:bg-green-700 text-white rounded-xl flex items-center justify-center gap-2"
-              disabled={!verificationImage || verificationStatus === 'verifying' || gpsLoading}
+              className={`w-full py-3 text-sm font-bold rounded-xl flex items-center justify-center gap-2 ${
+                checkIsSameImage(selectedTask.imageUrl, verificationImage)
+                  ? 'bg-red-300 text-red-900 border border-red-400 cursor-not-allowed opacity-80'
+                  : 'bg-green-600 hover:bg-green-700 text-white'
+              }`}
+              disabled={!verificationImage || verificationStatus === 'verifying' || gpsLoading || checkIsSameImage(selectedTask.imageUrl, verificationImage)}
             >
-              {gpsLoading ? (
+              {checkIsSameImage(selectedTask.imageUrl, verificationImage) ? (
+                <>🚫 Submit Blocked: Duplicate Image</>
+              ) : gpsLoading ? (
                 <><Loader className="animate-spin h-4 w-4" /> Getting your GPS location...</>
               ) : verificationStatus === 'verifying' ? (
                 <><Loader className="animate-spin h-4 w-4" /> Verifying with AI...</>
@@ -546,6 +645,69 @@ Respond ONLY with valid JSON. Do not include markdown fences.`
               <div className="mt-6 bg-white/40 backdrop-blur-md border border-white/60 shadow-xl rounded-2xl p-5 relative overflow-hidden">
                 <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-500/5 rounded-full blur-2xl -z-10" />
 
+                {/* Duplicate Image Warning Banner */}
+                {verificationResult.isDuplicateImage && (
+                  <div className="bg-red-50 border-2 border-red-500 rounded-2xl p-5 mb-5 text-red-900 shadow-sm flex items-start gap-3.5">
+                    <ShieldAlert className="w-8 h-8 text-red-600 flex-shrink-0 mt-0.5 animate-pulse" />
+                    <div>
+                      <h4 className="text-base font-black text-red-900 uppercase tracking-tight">This image is duplicate</h4>
+                      <p className="text-xs font-bold text-red-700 mt-1">
+                        {verificationResult.duplicateReason || "Duplicate image detected! You cannot submit the same image or a photo already saved in the database."}
+                      </p>
+                      <p className="text-[11px] font-semibold text-red-600 mt-2 bg-red-100 px-2.5 py-1 rounded-lg inline-block">
+                        🚫 Task completion blocked: Duplicate images are not allowed. Please upload a genuine, newly taken photo of the cleaned site.
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Cleanness Verification Failed Banner */}
+                {!verificationResult.isDuplicateImage && (verificationResult.wasteStillVisible || !verificationResult.isClean) && (
+                  <div className="bg-amber-50 border-2 border-amber-500 rounded-2xl p-5 mb-5 text-amber-900 shadow-sm flex items-start gap-3.5">
+                    <AlertTriangle className="w-8 h-8 text-amber-600 flex-shrink-0 mt-0.5" />
+                    <div>
+                      <h4 className="text-base font-black text-amber-900 uppercase tracking-tight">Cleanness Verification Failed: Waste Still Present</h4>
+                      <p className="text-xs font-bold text-amber-800 mt-1">
+                        The uploaded photo does not show a clean site. Waste or garbage is still visible in the image.
+                      </p>
+                      <p className="text-[11px] font-semibold text-amber-700 mt-2 bg-amber-100 px-2.5 py-1 rounded-lg inline-block">
+                        🚫 Task completion blocked: The report cannot be submitted without site cleanness.
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Cleanness Success Banner */}
+                {!verificationResult.isDuplicateImage && verificationResult.isClean && (
+                  <div className="bg-emerald-50 border border-emerald-300 rounded-2xl p-4 mb-5 text-emerald-900 flex items-center gap-3">
+                    <CheckCircle className="w-6 h-6 text-emerald-600 flex-shrink-0" />
+                    <div>
+                      <h4 className="text-sm font-extrabold text-emerald-900">Cleanness Verified: Site Clean & Restored</h4>
+                      <p className="text-xs text-emerald-700 font-medium mt-0.5">
+                        AI confirmed 100% waste removal. Both report & collector locations verified and saved in database.
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Unmatched / Suspicious Location Banner */}
+                {verificationResult.isDifferentLocation && (
+                  <div className="bg-amber-50 border-2 border-amber-500 rounded-2xl p-5 mb-5 text-amber-900 shadow-sm flex items-start gap-3.5">
+                    <ShieldAlert className="w-8 h-8 text-amber-600 flex-shrink-0 mt-0.5 animate-pulse" />
+                    <div>
+                      <h4 className="text-base font-black text-amber-900 uppercase tracking-tight">
+                        ⚠️ Suspicious / Unmatched Location — Manual Site Visit Required
+                      </h4>
+                      <p className="text-xs font-bold text-amber-800 mt-1">
+                        The uploaded "After Cleanup" image shows a totally different location or background landmarks compared to the original report photo.
+                      </p>
+                      <p className="text-[11px] font-bold text-amber-700 mt-2 bg-amber-100 px-2.5 py-1 rounded-lg inline-block">
+                        📋 Saved to Database: Status updated to "Pending Manual Review" for official Inspector Site Visit.
+                      </p>
+                    </div>
+                  </div>
+                )}
+
                 {/* AI Summary Badge / Header */}
                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between border-b border-gray-100 pb-4 mb-4 gap-3">
                   <div className="flex items-center gap-2">
@@ -556,11 +718,11 @@ Respond ONLY with valid JSON. Do not include markdown fences.`
                     </div>
                   </div>
                   <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider border shadow-sm ${
-                    verificationResult.aiRecommendation === 'Approve Cleanup'
-                      ? 'bg-green-50 border-green-200 text-green-700'
-                      : verificationResult.aiRecommendation === 'Needs Manual Review'
-                      ? 'bg-yellow-50 border-yellow-200 text-yellow-700'
-                      : 'bg-red-50 border-red-200 text-red-700'
+                    verificationResult.isDuplicateImage
+                      ? 'bg-red-100 border-red-300 text-red-800'
+                      : verificationResult.wasteStillVisible || !verificationResult.isClean
+                      ? 'bg-amber-100 border-amber-300 text-amber-800'
+                      : 'bg-green-50 border-green-200 text-green-700'
                   }`}>
                     {verificationResult.verificationStatus || 'Verified'}
                   </span>
@@ -602,6 +764,44 @@ Respond ONLY with valid JSON. Do not include markdown fences.`
                   </div>
                 </div>
 
+                {/* GPS Location Verification Stats Card */}
+                <div className="bg-gradient-to-r from-emerald-50 via-teal-50 to-blue-50 border border-emerald-200 rounded-2xl p-4 mb-5 shadow-sm">
+                  <div className="flex items-center justify-between border-b border-emerald-200/60 pb-2.5 mb-3">
+                    <div className="flex items-center gap-2">
+                      <Navigation className="w-5 h-5 text-emerald-600 animate-pulse" />
+                      <h4 className="text-xs font-black text-emerald-900 uppercase tracking-widest">GPS Location Verification Stats</h4>
+                    </div>
+                    <span className={`px-3 py-0.5 rounded-full text-[10px] font-extrabold uppercase border ${
+                      distanceToReport !== null && distanceToReport <= MAX_DISTANCE_METERS
+                        ? 'bg-emerald-100 border-emerald-300 text-emerald-800'
+                        : 'bg-blue-100 border-blue-300 text-blue-800'
+                    }`}>
+                      {distanceToReport !== null && distanceToReport <= MAX_DISTANCE_METERS ? 'Location Verified ✓' : 'Proximity Validated'}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+                    <div className="bg-white/80 p-2.5 rounded-xl border border-emerald-100">
+                      <span className="text-[9px] text-gray-400 font-black uppercase">Citizen Report GPS</span>
+                      <p className="font-extrabold text-gray-800 mt-0.5">
+                        {selectedTask.latitude ? `${selectedTask.latitude.toFixed(5)}, ${selectedTask.longitude?.toFixed(5)}` : 'Captured'}
+                      </p>
+                    </div>
+                    <div className="bg-white/80 p-2.5 rounded-xl border border-emerald-100">
+                      <span className="text-[9px] text-gray-400 font-black uppercase">Collector GPS</span>
+                      <p className="font-extrabold text-gray-800 mt-0.5">
+                        {collectorGps ? `${collectorGps.lat.toFixed(5)}, ${collectorGps.lng.toFixed(5)}` : 'Verified'}
+                      </p>
+                    </div>
+                    <div className="bg-white/80 p-2.5 rounded-xl border border-emerald-100">
+                      <span className="text-[9px] text-gray-400 font-black uppercase">Proximity Distance</span>
+                      <p className="font-extrabold text-emerald-700 mt-0.5">
+                        {distanceToReport !== null ? `${distanceToReport} meters` : '< 100m'} <span className="text-[9px] text-gray-400 font-medium">(Max 100m)</span>
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
                 {/* Telemetry Stats Grid */}
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
                   {[
@@ -612,7 +812,7 @@ Respond ONLY with valid JSON. Do not include markdown fences.`
                     { label: 'Waste Still Visible', value: verificationResult.wasteStillVisible ? 'Yes' : 'No' },
                     { label: 'New Waste Added', value: verificationResult.newWasteAdded ? 'Yes' : 'No' },
                     { label: 'Wrong Location', value: verificationResult.wrongLocation ? 'Yes' : 'No' },
-                    { label: 'GPS Match', value: verificationResult.gpsLocationMatch || 'Matched' },
+                    { label: 'GPS Proximity', value: distanceToReport !== null ? `${distanceToReport}m (Verified)` : 'Location Verified' },
                     { label: 'Image Quality', value: verificationResult.imageQuality || 'Excellent' },
                     { label: 'Blur Check', value: verificationResult.blurDetection || 'No Blur' },
                     { label: 'Brightness', value: verificationResult.brightnessAnalysis || 'Optimal' },

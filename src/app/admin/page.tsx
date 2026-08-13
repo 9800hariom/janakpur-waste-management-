@@ -1,7 +1,7 @@
 'use client'
 import { useState, useEffect } from 'react'
 import { getAdminStats, getAllUsers, getAllReportsDetailed, getAllRewards, getUserByEmail } from '@/utils/db/actions'
-import { Loader, Users, FileText, Trash2, Coins, Search, Settings, Shield, Activity, BarChart3 } from 'lucide-react'
+import { Loader, Users, FileText, Trash2, Coins, Search, Settings, Shield, Activity, BarChart3, Database } from 'lucide-react'
 import { toast } from 'react-hot-toast'
 import { useSession } from "next-auth/react"
 import { useRouter } from 'next/navigation'
@@ -14,8 +14,9 @@ import { RewardsManager } from './components/RewardsManager'
 import { SettingsManager } from './components/SettingsManager'
 import { ActivityLogsManager } from './components/ActivityLogsManager'
 import { AnalyticsDashboard } from './components/AnalyticsDashboard'
+import { DatabaseInspector } from './components/DatabaseInspector'
 
-type AdminTab = 'dashboard' | 'analytics' | 'users' | 'reports' | 'rewards' | 'settings' | 'logs'
+type AdminTab = 'dashboard' | 'analytics' | 'users' | 'reports' | 'rewards' | 'settings' | 'logs' | 'database'
 
 export default function AdminDashboardPage() {
   const { data: session, status } = useSession()
@@ -30,14 +31,16 @@ export default function AdminDashboardPage() {
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState<AdminTab>('dashboard')
 
+  const userEmail = session?.user?.email
+
   useEffect(() => {
-    if (status === 'authenticated' && session?.user?.email) {
-      checkAdmin(session.user.email)
+    if (status === 'authenticated' && userEmail) {
+      checkAdmin(userEmail)
     } else if (status === 'unauthenticated') {
       toast.error('Access Denied. Please log in first.')
       router.push('/login')
     }
-  }, [status, session])
+  }, [status, userEmail])
 
   const checkAdmin = async (email: string) => {
     try {
@@ -45,7 +48,7 @@ export default function AdminDashboardPage() {
       if (user && user.role === 'admin') {
         setIsAdmin(true)
         setCurrentAdminId(user.id)
-        fetchAdminData()
+        fetchAdminData(!isAdmin) // Only show initial loading screen if not already verified
       } else {
         toast.error('Access Denied. Admins only.')
         router.push('/')
@@ -56,8 +59,10 @@ export default function AdminDashboardPage() {
     }
   }
 
-  const fetchAdminData = async () => {
-    setLoading(true)
+  const fetchAdminData = async (showInitialLoader = false) => {
+    if (showInitialLoader) {
+      setLoading(true)
+    }
     try {
       const [statsData, usersList, reportsList, rewardsList] = await Promise.all([
         getAdminStats(),
@@ -95,6 +100,7 @@ export default function AdminDashboardPage() {
     { id: 'reports', label: 'Reports & Tasks', icon: <FileText className="w-4 h-4 mr-2" /> },
     { id: 'rewards', label: 'Rewards (Citizens)', icon: <Coins className="w-4 h-4 mr-2" /> },
     { id: 'logs', label: 'Activity Logs', icon: <Search className="w-4 h-4 mr-2" /> },
+    { id: 'database', label: 'SQLite Inspector', icon: <Database className="w-4 h-4 mr-2 text-emerald-600" /> },
     { id: 'settings', label: 'Settings', icon: <Settings className="w-4 h-4 mr-2" /> },
   ]
 
@@ -133,8 +139,9 @@ export default function AdminDashboardPage() {
         {activeTab === 'users' && <UsersManager users={users} currentAdminId={currentAdminId} onUpdate={fetchAdminData} />}
         {activeTab === 'reports' && <ReportsManager reports={reports} currentAdminId={currentAdminId} onUpdate={fetchAdminData} />}
         {activeTab === 'rewards' && <RewardsManager rewards={rewards} currentAdminId={currentAdminId} onUpdate={fetchAdminData} />}
-        {activeTab === 'settings' && <SettingsManager currentAdminId={currentAdminId} />}
         {activeTab === 'logs' && <ActivityLogsManager />}
+        {activeTab === 'database' && <DatabaseInspector />}
+        {activeTab === 'settings' && <SettingsManager currentAdminId={currentAdminId} />}
       </div>
     </div>
   )

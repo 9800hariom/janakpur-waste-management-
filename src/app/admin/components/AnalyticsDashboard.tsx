@@ -10,6 +10,7 @@ import {
   MapPin, Leaf, BarChart3, RefreshCw, Filter, AlertTriangle, Navigation
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { PredictiveAnalytics } from './PredictiveAnalytics'
 
 const COLORS = ['#10b981', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4', '#ec4899', '#84cc16']
 
@@ -166,6 +167,9 @@ export function AnalyticsDashboard() {
         </Button>
       </div>
 
+      {/* ── PREDICTIVE ANALYTICS ── */}
+      <PredictiveAnalytics analyticsData={data} />
+
       {/* ── KPI CARDS ── */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
         <KPICard title="Total Reports" value={(overview?.totalReports || 0).toLocaleString()} subtitle={`${overview?.todaysReports || 0} today`} icon={FileText} color="bg-blue-500" trend={overview?.growthPct} />
@@ -178,48 +182,52 @@ export function AnalyticsDashboard() {
         <KPICard title="Recycling Rate" value={`${recycling?.percentage || 0}%`} subtitle={`${recycling?.recyclable || 0} of ${recycling?.total || 0} verified`} icon={RefreshCw} color="bg-cyan-500" />
       </div>
 
-      {/* ── TREND ANALYSIS ── */}
-      <div className="bg-white rounded-2xl p-6 border border-gray-100 shadow-sm">
-        <div className="flex items-center justify-between mb-5">
-          <SectionTitle icon={TrendingUp} title="Report Trends" subtitle="Submitted, verified, and pending over time" />
-          <div className="flex gap-1 bg-gray-100 p-1 rounded-lg">
-            {(['daily', 'weekly', 'monthly', 'yearly'] as const).map(v => (
-              <button
-                key={v}
-                onClick={() => setTrendView(v)}
-                className={`px-3 py-1 text-xs font-semibold rounded-md transition-all ${trendView === v ? 'bg-white text-green-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
-              >
-                {v.charAt(0).toUpperCase() + v.slice(1)}
-              </button>
-            ))}
+      {/* ── TREND ANALYSIS & AI CHAT ── */}
+      <div className="grid lg:grid-cols-3 gap-5">
+        <div className="lg:col-span-2 bg-white rounded-2xl p-6 border border-gray-100 shadow-sm">
+          <div className="flex items-center justify-between mb-5">
+            <SectionTitle icon={TrendingUp} title="Report Trends" subtitle="Submitted, verified, and pending over time" />
+            <div className="flex gap-1 bg-gray-100 p-1 rounded-lg">
+              {(['daily', 'weekly', 'monthly', 'yearly'] as const).map(v => (
+                <button
+                  key={v}
+                  onClick={() => setTrendView(v)}
+                  className={`px-3 py-1 text-xs font-semibold rounded-md transition-all ${trendView === v ? 'bg-white text-green-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                >
+                  {v.charAt(0).toUpperCase() + v.slice(1)}
+                </button>
+              ))}
+            </div>
           </div>
+          {trendData[trendView].length === 0 ? (
+            <div className="h-64 flex items-center justify-center text-gray-400 text-sm">No data available for this period.</div>
+          ) : (
+            <ResponsiveContainer width="100%" height={280}>
+              <AreaChart data={trendData[trendView]}>
+                <defs>
+                  <linearGradient id="colorTotal" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#10b981" stopOpacity={0.3} />
+                    <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
+                  </linearGradient>
+                  <linearGradient id="colorVerified" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3} />
+                    <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                <XAxis dataKey="name" tick={{ fontSize: 11 }} />
+                <YAxis tick={{ fontSize: 11 }} />
+                <Tooltip content={<CustomTooltip />} />
+                <Legend />
+                <Area type="monotone" dataKey="total" name="Total" stroke="#10b981" fill="url(#colorTotal)" strokeWidth={2} />
+                <Area type="monotone" dataKey="verified" name="Verified" stroke="#3b82f6" fill="url(#colorVerified)" strokeWidth={2} />
+                <Area type="monotone" dataKey="pending" name="Pending" stroke="#f59e0b" fill="none" strokeDasharray="4 4" strokeWidth={1.5} />
+              </AreaChart>
+            </ResponsiveContainer>
+          )}
         </div>
-        {trendData[trendView].length === 0 ? (
-          <div className="h-64 flex items-center justify-center text-gray-400 text-sm">No data available for this period.</div>
-        ) : (
-          <ResponsiveContainer width="100%" height={280}>
-            <AreaChart data={trendData[trendView]}>
-              <defs>
-                <linearGradient id="colorTotal" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#10b981" stopOpacity={0.3} />
-                  <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
-                </linearGradient>
-                <linearGradient id="colorVerified" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3} />
-                  <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
-                </linearGradient>
-              </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-              <XAxis dataKey="name" tick={{ fontSize: 11 }} />
-              <YAxis tick={{ fontSize: 11 }} />
-              <Tooltip content={<CustomTooltip />} />
-              <Legend />
-              <Area type="monotone" dataKey="total" name="Total" stroke="#10b981" fill="url(#colorTotal)" strokeWidth={2} />
-              <Area type="monotone" dataKey="verified" name="Verified" stroke="#3b82f6" fill="url(#colorVerified)" strokeWidth={2} />
-              <Area type="monotone" dataKey="pending" name="Pending" stroke="#f59e0b" fill="none" strokeDasharray="4 4" strokeWidth={1.5} />
-            </AreaChart>
-          </ResponsiveContainer>
-        )}
+        
+        {/* Smart Analytics Chat Removed */}
       </div>
 
       {/* ── WASTE CATEGORY + STATUS ── */}

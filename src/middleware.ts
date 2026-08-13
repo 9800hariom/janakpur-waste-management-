@@ -2,8 +2,8 @@ import { withAuth } from "next-auth/middleware";
 import { NextResponse } from "next/server";
 
 export default withAuth(
-  function middleware(req) {
-    const token = req.nextauth.token;
+  function middleware(req: any) {
+    const token = req.nextauth?.token;
     const role = (token?.role as string) || "citizen";
     const pathname = req.nextUrl.pathname;
 
@@ -35,7 +35,13 @@ export default withAuth(
   },
   {
     callbacks: {
-      authorized: ({ token }) => !!token,
+      authorized: ({ req, token }: any) => {
+        const path = req.nextUrl.pathname;
+        if (path.startsWith("/api/auth") || path === "/login" || path === "/register" || path === "/") {
+          return true;
+        }
+        return !!token;
+      },
     },
   }
 );

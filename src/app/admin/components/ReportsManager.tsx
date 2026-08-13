@@ -7,6 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Trash2, Search, Eye, MapPin, Navigation, CheckCircle, X, FileSpreadsheet, ShieldAlert, ShieldCheck, Sparkles, Filter, Calendar, ArrowRight, Activity, Percent, Loader } from 'lucide-react'
 import { toast } from 'react-hot-toast'
 import { updateTaskStatus, getVerificationHistoryByReportId } from '@/utils/db/actions'
+import { autoAssignCollectors } from '@/utils/db/autoAssignActions'
 
 type Report = {
   id: number
@@ -208,6 +209,23 @@ export function ReportsManager({ reports: initialReports, currentAdminId, onUpda
     }
   }
 
+  const handleAutoAssign = async () => {
+    setLoading(true)
+    try {
+      const result = await autoAssignCollectors(1) // Admin ID placeholder
+      if (result.success) {
+        toast.success(result.message)
+        onUpdate() // Trigger a refresh
+      } else {
+        toast.error(result.message)
+      }
+    } catch (error) {
+      toast.error('Failed to auto-assign collectors')
+    } finally {
+      setLoading(false)
+    }
+  }
+
   const statusColor: Record<string, string> = {
     pending: 'bg-yellow-100 text-yellow-800 border-yellow-200',
     in_progress: 'bg-blue-100 text-blue-800 border-blue-200',
@@ -249,6 +267,9 @@ export function ReportsManager({ reports: initialReports, currentAdminId, onUpda
                   <SelectItem value="pending_manual_review">Pending Manual Review</SelectItem>
                 </SelectContent>
               </Select>
+              <Button onClick={handleAutoAssign} variant="outline" className="flex items-center gap-1.5 text-xs font-bold border-blue-200 text-blue-700 bg-blue-50 hover:bg-blue-100" disabled={loading}>
+                <Sparkles className="w-4 h-4" /> Auto-Assign Tasks (AI)
+              </Button>
               <Button onClick={exportToCSV} variant="outline" className="flex items-center gap-1.5 text-xs font-bold border-green-200 text-green-700 bg-green-50 hover:bg-green-100">
                 <FileSpreadsheet className="w-4 h-4" /> Export CSV
               </Button>

@@ -3,15 +3,8 @@
 import { useState, useEffect } from 'react'
 import { ArrowRight, Leaf, Recycle, Users, Coins, MapPin, ChevronRight } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Poppins } from 'next/font/google'
 import Link from 'next/link'
-import ContractInteraction from '@/components/ContractInteraction'
 import { getRecentReports, getAllRewards, getWasteCollectionTasks } from '@/utils/db/actions'
-const poppins = Poppins({
-  weight: ['300', '400', '600'],
-  subsets: ['latin'],
-  display: 'swap',
-})
 
 function AnimatedGlobe() {
   return (
@@ -39,9 +32,11 @@ export default function Home() {
   useEffect(() => {
     async function fetchImpactData() {
       try {
-        const reports = await getRecentReports(100);
-        const rewards = await getAllRewards();
-        const tasks = await getWasteCollectionTasks(100);
+        const [reports, rewards, tasks] = await Promise.all([
+          getRecentReports(50),
+          getAllRewards(),
+          getWasteCollectionTasks(50)
+        ]);
 
         const wasteCollected = tasks.reduce((total, task) => {
           const match = task.amount.match(/(\d+(\.\d+)?)/);
@@ -78,7 +73,7 @@ export default function Home() {
   };
 
   return (
-    <div className={`relative min-h-screen ${poppins.className}`}>
+    <div className="relative min-h-screen font-[family-name:var(--font-poppins)]">
       {/* Full Screen Fixed Background */}
       <div className="relative h-[120vh]">
         <div className="sticky top-20 overflow-hidden">
@@ -88,6 +83,7 @@ export default function Home() {
             muted
             loop
             playsInline
+            preload="metadata"
             className="
         w-full 
         h-[500px] 
@@ -104,7 +100,7 @@ export default function Home() {
       <div className="relative z-10 container mx-auto px-4 py-16">
         <section className="text-center mb-20">
           <h1 className="text-5xl md:text-7xl font-extrabold mb-6 tracking-tight leading-tight text-gray-900">
-            Smart{" "}
+            {"Green"}
             <span className="bg-gradient-to-r from-green-600 via-emerald-500 to-teal-500 bg-clip-text text-transparent">
               Janakpur Waste
             </span>
@@ -113,12 +109,12 @@ export default function Home() {
             <span className="text-green-600 animate-color"> AI</span>
           </h1>
 
-          <p className="text-lg md:text-xl text-white max-w-2xl leading-relaxed ml-20 font-semibold animate-color">
+          <p className="text-lg md:text-xl text-white max-w-2xl leading-relaxed mx-auto text-center font-semibold animate-color">
             Transforming waste into a cleaner future with{" "}
             <span className="font-semibold text-green-600">
               AI-powered verification,
             </span>{" "}
-            smart recycling, and community-driven environmental solutions.
+            green recycling, and community-driven environmental solutions.
           </p>
 
           {!loggedIn ? (

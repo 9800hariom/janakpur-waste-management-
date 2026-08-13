@@ -3,7 +3,8 @@
 import { db } from './dbConfig';
 import { Users, Reports, Rewards, CollectedWastes, Notifications, Transactions, AiVerificationHistory } from './schema';
 import { eq, sql, and, desc, ne } from 'drizzle-orm';
-import bcrypt from 'bcryptjs';
+import bcryptjs from 'bcryptjs';
+const bcrypt = (bcryptjs as any).default || bcryptjs;
 
 // ─────────────────────────────────────────
 // Haversine distance in meters
@@ -40,10 +41,10 @@ export async function createUser(email: string, name: string, password?: string)
 export async function getUserByEmail(email: string) {
   try {
     let [user] = await db.select().from(Users).where(eq(Users.email, email)).execute();
-    if (!user && email === 'admin@smart janakpur waste management.com') {
+    if (!user && (email === 'admin@greenjanakpur.com' || email === 'admin@green janakpur waste management.com')) {
       const passwordHash = await bcrypt.hash('Admin@123', 10);
       [user] = await db.insert(Users).values({
-        email: 'admin@smart janakpur waste management.com',
+        email: 'admin@greenjanakpur.com',
         name: 'Admin Admin',
         fullName: 'Admin Admin',
         password: passwordHash,
@@ -281,9 +282,11 @@ export async function updateTaskStatusWithLocation(
         collectorLat, collectorLng
       );
 
-      if (newStatus === 'verified' && distance > MAX_ALLOWED_DISTANCE_METERS) {
+    if (newStatus === 'verified' || newStatus === 'completed') {
+      if (distance > MAX_ALLOWED_DISTANCE_METERS) {
         return { success: false, error: 'too_far', distanceMeters: distance };
       }
+    }
 
       // Save collector GPS and distance
       await db.update(Reports).set({
@@ -309,6 +312,52 @@ export async function updateTaskStatusWithLocation(
   } catch (error) {
     console.error("Error in updateTaskStatusWithLocation:", error);
     throw error;
+  }
+}
+
+/**
+ * Check if an uploaded image is a duplicate of any existing report image or verification history image in DB.
+ */
+export async function checkDuplicateImageInDb(imageBase64: string, currentReportId?: number): Promise<{
+  isDuplicate: boolean;
+  duplicateOfId?: number;
+  reason?: string;
+}> {
+  try {
+    if (!imageBase64 || imageBase64.length < 100) {
+      return { isDuplicate: false };
+    }
+
+    // Extract core payload if data URI
+    const cleanBase64 = imageBase64.includes(',') ? imageBase64.split(',')[1] : imageBase64;
+    const sampleHash = cleanBase64.slice(0, 500); // quick prefix matching
+
+    // Check existing reports
+    const reports = await db.select({
+      id: Reports.id,
+      imageUrl: Reports.imageUrl,
+    }).from(Reports).execute();
+
+    for (const report of reports) {
+      if (currentReportId && report.id === currentReportId) continue;
+      if (!report.imageUrl) continue;
+
+      const reportClean = report.imageUrl.includes(',') ? report.imageUrl.split(',')[1] : report.imageUrl;
+
+      // Exact match or high prefix similarity
+      if (cleanBase64 === reportClean || (cleanBase64.length > 500 && reportClean.startsWith(sampleHash))) {
+        return {
+          isDuplicate: true,
+          duplicateOfId: report.id,
+          reason: `Exact or highly identical image match found with Report #${report.id}.`,
+        };
+      }
+    }
+
+    return { isDuplicate: false };
+  } catch (error) {
+    console.error("Error checking duplicate image in DB:", error);
+    return { isDuplicate: false };
   }
 }
 
@@ -338,7 +387,7 @@ export async function getCollectedWastesByCollector(collectorId: number) {
   }
 }
 
-export async function saveCollectedWaste(reportId: number, collectorId: number, verificationResult: any) {
+export async function saveCollectedWaste(reportId: number, collectorId: number, verificationResult: any, cleanupImageUrl?: string) {
   try {
     const [collectedWaste] = await db
       .insert(CollectedWastes)
@@ -352,14 +401,32 @@ export async function saveCollectedWaste(reportId: number, collectorId: number, 
         .where(eq(Reports.id, reportId))
         .execute();
 
+      const isDifferentLoc = verificationResult.isDifferentLocation || verificationResult.matchedLocation === 'Not Matched';
+
+      const verStatus = verificationResult.isDuplicateImage 
+        ? 'Duplicate Image' 
+        : (!verificationResult.isClean && verificationResult.wasteStillVisible)
+        ? 'Unclean Waste Present'
+        : isDifferentLoc
+        ? 'Suspicious / Unmatched Image'
+        : (verificationResult.verificationStatus || (verificationResult.verified ? 'Verified' : 'Rejected'));
+
+      const finalDec = verificationResult.isDuplicateImage 
+        ? 'Reject Report - Duplicate Image'
+        : (!verificationResult.isClean && verificationResult.wasteStillVisible)
+        ? 'Reject Report - Waste Still Present'
+        : isDifferentLoc
+        ? 'Needs Manual Inspector Visit'
+        : (verificationResult.finalDecision || (verificationResult.verified ? 'Accept Report' : 'Reject Report'));
+
       await db.insert(AiVerificationHistory).values({
         reportId,
         checkerId: collectorId,
         checkType: 'collector_verify',
         fullResult: verificationResult,
-        imageUrl: null,
-        verificationStatus: verificationResult.verificationStatus || (verificationResult.verified ? 'Verified' : 'Rejected'),
-        finalDecision: verificationResult.finalDecision || (verificationResult.verified ? 'Accept Report' : 'Reject Report'),
+        imageUrl: cleanupImageUrl || null,
+        verificationStatus: verStatus,
+        finalDecision: finalDec,
       }).execute();
     }
 

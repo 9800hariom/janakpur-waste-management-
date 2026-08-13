@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import bcrypt from "bcryptjs";
+import bcryptjs from "bcryptjs";
+const bcrypt = (bcryptjs as any).default || bcryptjs;
 import { getUserByResetToken, updatePassword } from "@/utils/db/actions";
 
 const resetPasswordSchema = z.object({

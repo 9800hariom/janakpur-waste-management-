@@ -59,7 +59,7 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
         {/* Header (Optional, can be removed if redundant) */}
         <div className="flex items-center justify-between px-5 py-4 border-b">
           <h2 className="font-bold text-lg text-green-700">
-            Smart Waste
+            Green Waste
           </h2>
         </div>
 

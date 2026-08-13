@@ -19,7 +19,7 @@ export default function MessagesPage() {
   const [messages, setMessages] = useState<Message[]>([
     {
       role: 'assistant',
-      content: "Hello! I am your Smart Janakpur Waste Management AI Assistant. Ask me anything about waste management, recycling suggestions, or how to dispose of specific items safely!"
+      content: "Hello! I am your green Janakpur Waste Management AI Assistant. Ask me anything about waste management, recycling suggestions, or how to dispose of specific items safely!"
     }
   ])
   const [input, setInput] = useState('')
@@ -42,7 +42,7 @@ export default function MessagesPage() {
     setInput('')
 
     try {
-      const systemPrefix = "You are Smart Janakpur Waste Management AI, a friendly and encouraging waste management and recycling expert. Answer waste disposal questions, give recyclability advice, and explain the positive environmental impacts of recycling. Keep responses concise, clear, and action-oriented.\n\nUser question: "
+      const systemPrefix = "You are green Janakpur Waste Management AI, a friendly and encouraging waste management and recycling expert. Answer waste disposal questions, give recyclability advice, and explain the positive environmental impacts of recycling. Keep responses concise, clear, and action-oriented.\n\nUser question: "
 
       const responseText = await callGemini(systemPrefix + textToSend.trim())
 
@@ -71,7 +71,7 @@ export default function MessagesPage() {
           </div>
           <div>
             <h1 className="font-bold text-lg leading-tight flex items-center">
-              Smart Janakpur Waste Management AI Assistant
+              green Janakpur Waste Management AI Assistant
               <Sparkles className="w-4 h-4 ml-1.5 text-yellow-300 fill-yellow-300 animate-pulse" />
             </h1>
             <p className="text-xs text-green-100">Your recycling & waste management companion</p>
@@ -110,7 +110,7 @@ export default function MessagesPage() {
                 </div>
                 <div className="bg-white border border-gray-100 rounded-2xl rounded-tl-none p-4 shadow-sm flex items-center space-x-2 text-gray-500">
                   <Loader2 className="w-4 h-4 animate-spin text-green-500" />
-                  <span className="text-sm">Smart Janakpur Waste Management AI is thinking...</span>
+                  <span className="text-sm">green Janakpur Waste Management AI is thinking...</span>
                 </div>
               </div>
             </div>
