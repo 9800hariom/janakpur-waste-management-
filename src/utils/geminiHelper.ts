@@ -58,8 +58,8 @@ function getFallbackWasteAnalysis(prompt: string = ""): string {
         {
           name: "Mixed Plastic & Packaging",
           category: "Plastic",
-          quantity: 12,
-          estimatedWeightKg: 2.2,
+          approximateQuantityRange: "10-15",
+          approximateWeightRangeKg: "2-3",
           material: "PET / Plastic Wrappers",
           condition: "Scattered",
           recyclable: true,
@@ -68,16 +68,16 @@ function getFallbackWasteAnalysis(prompt: string = ""): string {
         {
           name: "Paper & Cardboard Scrap",
           category: "Paper",
-          quantity: 5,
-          estimatedWeightKg: 0.8,
+          approximateQuantityRange: "3-6",
+          approximateWeightRangeKg: "0.5-1",
           material: "Cardboard",
           condition: "Dry",
           recyclable: true,
           confidence: 85
         }
       ],
-      estimatedTotalWeightKg: 3.0,
-      estimatedTotalItems: 17,
+      estimatedTotalWeightKg: "Approximately 2.5-4",
+      estimatedTotalItems: "Approximately 15-20",
       primaryWasteType: "Plastic & Mixed Recyclables",
       secondaryWasteType: "Paper",
       cleanliness: "Slightly Dirty",

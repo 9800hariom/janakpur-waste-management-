@@ -135,9 +135,9 @@ export default function Header({ onMenuClick, sidebarOpen }: HeaderProps) {
           <Link href="/" className="flex items-center min-w-0">
             {/* <Leaf className="h-5 w-5 md:h-8 md:w-8 text-green-500 mr-1 md:mr-2 flex-shrink-0" /> */}
             <div className="flex flex-col min-w-0">
-              <span className="font-bold text-sm md:text-lg text-gray-800 animate-color truncate max-w-[150px] sm:max-w-xs md:max-w-full">Green Janakpur Waste Management</span>
+              <span className="font-bold text-sm md:text-lg text-gray-800 animate-color truncate max-w-[150px] sm:max-w-xs md:max-w-full"> Janakpur Waste Management</span>
               <span className="hidden sm:inline-flex items-center px-2 py-0.5 mt-1 rounded-full text-[10px] md:text-xs font-semibold bg-green-50 text-green-700 border border-green-200 animate-color w-fit">
-                🌱 Green Janakpur Waste Management AI
+                🌱  Janakpur Waste Management AI
               </span>
             </div>
           </Link>

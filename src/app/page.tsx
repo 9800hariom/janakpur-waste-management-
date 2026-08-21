@@ -100,7 +100,7 @@ export default function Home() {
       <div className="relative z-10 container mx-auto px-4 py-16">
         <section className="text-center mb-20">
           <h1 className="text-5xl md:text-7xl font-extrabold mb-6 tracking-tight leading-tight text-gray-900">
-            {"Green"}
+            {""}
             <span className="bg-gradient-to-r from-green-600 via-emerald-500 to-teal-500 bg-clip-text text-transparent">
               Janakpur Waste
             </span>

@@ -27,6 +27,8 @@ export default function ReportPage() {
     wasteType: string
     amount: string
     createdAt: string
+    confidence?: number
+    priority?: string
   }>>([])
 
   const [newReport, setNewReport] = useState({ location: '', type: '' })
@@ -103,6 +105,16 @@ export default function ReportPage() {
     setNewReport(prev => ({ ...prev, [name]: value }))
   }
 
+  const setLocationInputValue = (address: string) => {
+    setNewReport(prev => ({ ...prev, location: address }))
+    setTimeout(() => {
+      const inputEl = document.getElementById('location-input') as HTMLInputElement
+      if (inputEl) {
+        inputEl.value = address
+      }
+    }, 100)
+  }
+
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files?.[0]) {
       const selectedFile = e.target.files[0]
@@ -128,17 +140,14 @@ export default function ReportPage() {
                 const ward = results[0].address_components
                   ? extractWardFromComponents(results[0].address_components)
                   : ''
-                setNewReport(prev => ({ ...prev, location: address }))
                 setLocationGps({ lat, lng, formattedAddress: address, wardNumber: ward })
               } else {
                 const coordsAddress = `${lat.toFixed(5)}, ${lng.toFixed(5)}`
-                setNewReport(prev => ({ ...prev, location: coordsAddress }))
                 setLocationGps({ lat, lng, formattedAddress: coordsAddress, wardNumber: '' })
               }
             })
           } else {
             const coordsAddress = `${lat.toFixed(5)}, ${lng.toFixed(5)}`
-            setNewReport(prev => ({ ...prev, location: coordsAddress }))
             setLocationGps({ lat, lng, formattedAddress: coordsAddress, wardNumber: '' })
           }
         }
@@ -166,23 +175,20 @@ export default function ReportPage() {
               const ward = results[0].address_components
                 ? extractWardFromComponents(results[0].address_components)
                 : ''
-              setNewReport(prev => ({ ...prev, location: address }))
               setLocationGps({ lat, lng, formattedAddress: address, wardNumber: ward })
               toast.success('Location auto-filled from GPS!', { id: 'report-gps' })
             } else {
               // Geocoder failed — try OpenStreetMap Nominatim as fallback
-              fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`)
+              fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&email=smartjanakpur@gmail.com`)
                 .then(r => r.json())
                 .then(data => {
                   const address = data.display_name || `${lat.toFixed(5)}, ${lng.toFixed(5)}`
-                  setNewReport(prev => ({ ...prev, location: address }))
                   setLocationGps({ lat, lng, formattedAddress: address, wardNumber: '' })
                   toast.success('Location auto-filled from GPS!', { id: 'report-gps' })
                 })
                 .catch(() => {
                   // Last resort: show readable coords
                   const fallback = `Lat: ${lat.toFixed(5)}, Lng: ${lng.toFixed(5)}`
-                  setNewReport(prev => ({ ...prev, location: fallback }))
                   setLocationGps({ lat, lng, formattedAddress: fallback, wardNumber: '' })
                   toast.success('GPS coordinates captured!', { id: 'report-gps' })
                 })
@@ -194,17 +200,15 @@ export default function ReportPage() {
           doReverseGeocode(new google.maps.Geocoder())
         } else {
           // Google Maps not loaded — use Nominatim directly
-          fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`)
+          fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&email=smartjanakpur@gmail.com`)
             .then(r => r.json())
             .then(data => {
               const address = data.display_name || `${lat.toFixed(5)}, ${lng.toFixed(5)}`
-              setNewReport(prev => ({ ...prev, location: address }))
               setLocationGps({ lat, lng, formattedAddress: address, wardNumber: '' })
               toast.success('Location auto-filled from GPS!', { id: 'report-gps' })
             })
             .catch(() => {
               const fallback = `Lat: ${lat.toFixed(5)}, Lng: ${lng.toFixed(5)}`
-              setNewReport(prev => ({ ...prev, location: fallback }))
               setLocationGps({ lat, lng, formattedAddress: fallback, wardNumber: '' })
               toast.success('GPS coordinates captured!', { id: 'report-gps' })
             })
@@ -273,21 +277,15 @@ Respond ONLY in JSON (no markdown): { "isDuplicate": bool, "duplicateOfId": numb
 Your task is to analyze a waste image using computer vision and return ONLY valid JSON.
 
 RULES
-1. Analyze ONLY what is visible.
-2. Never invent objects that are not present.
-3. If uncertain, lower the confidence score.
-4. Use realistic estimates instead of exact measurements.
-5. Detect multiple waste objects.
-6. Classify each object correctly.
-7. Estimate weight using visible size and quantity.
-8. Identify recyclable and non-recyclable materials.
-9. Determine cleanliness level.
-10. Detect possible hazards.
-11. Estimate collection priority.
-12. Give practical recycling suggestions.
-13. Produce a professional environmental inspection report.
-14. Return JSON only.
-15. Do not include markdown or explanations.
+1. Analyze ONLY what is visible. Never invent objects that are not present.
+2. If uncertain, lower the confidence score. Do not guess.
+3. NEVER use hard-coded or fixed numbers (like "3 kg"). Every image must produce a unique, dynamic analysis based on visible evidence.
+4. Weight MUST ALWAYS be an APPROXIMATE ESTIMATE range (e.g., "0.5-1 kg", "8-12 kg"), not an exact measurement. Estimate using visible item type, quantity, size, density, and material.
+5. Quantity MUST ALWAYS be an approximate item count range (e.g., "8-12", "30-50").
+6. If the image is unclear or contains little waste, return a low confidence score and explain the limitation.
+7. Give practical, image-specific recycling recommendations and actions based on the detected waste.
+8. Identify recyclable and non-recyclable materials accurately.
+9. Return JSON only. No markdown.
 
 Allowed Categories: Plastic, Paper, Cardboard, Glass, Metal, Organic, Electronic, Textile, Rubber, Construction, Mixed Waste, Hazardous, Other
 Collection Priority: Low, Medium, High, Critical
@@ -306,16 +304,16 @@ Output Schema:
       {
         "name": "",
         "category": "",
-        "quantity": 0,
-        "estimatedWeightKg": 0,
+        "approximateQuantityRange": "",
+        "approximateWeightRangeKg": "",
         "material": "",
         "condition": "",
         "recyclable": true,
         "confidence": 0
       }
     ],
-    "estimatedTotalWeightKg": 0,
-    "estimatedTotalItems": 0,
+    "estimatedTotalWeightKg": "",
+    "estimatedTotalItems": "",
     "primaryWasteType": "",
     "secondaryWasteType": "",
     "cleanliness": "",
@@ -353,7 +351,7 @@ Output Schema:
         const confidenceVal = confRaw <= 1 ? Math.round(confRaw * 100) : Math.round(confRaw)
         
         const wasteCat = analysis.primaryWasteType || analysis.wasteCategory || "Plastic"
-        const weightVal = typeof analysis.estimatedTotalWeightKg === 'number' ? analysis.estimatedTotalWeightKg : (typeof analysis.estimatedWeightKg === 'number' ? analysis.estimatedWeightKg : (parseFloat(analysis.estimatedTotalWeightKg || analysis.estimatedWeightKg) || 2.5))
+        const weightVal = analysis.estimatedTotalWeightKg || analysis.estimatedWeightKg || "Unknown weight"
         const priorityVal = analysis.collectionPriority || analysis.priorityLevel || analysis.priority || "High"
         const recList = Array.isArray(analysis.recyclingSuggestions) 
           ? analysis.recyclingSuggestions 
@@ -370,7 +368,7 @@ Output Schema:
           wasteCategory: wasteCat,
           wasteTypes: typesList,
           estimatedWeightKg: weightVal,
-          estimatedQuantity: analysis.estimatedTotalItems ? `Approximately ${analysis.estimatedTotalItems} items` : (analysis.estimatedQuantity || "Approximately 15-20 items"),
+          estimatedQuantity: analysis.estimatedTotalItems || analysis.estimatedQuantity || "Unknown quantity",
           wasteDensity: (priorityVal === 'Critical' || priorityVal === 'High') ? "High" : "Medium",
           recyclable: Array.isArray(analysis.wasteObjects) ? (analysis.wasteObjects.some((o: any) => o.recyclable) ? "Partially Recyclable" : "Non-Recyclable") : (analysis.recyclable || "Partially Recyclable"),
           priorityLevel: priorityVal,
@@ -432,9 +430,8 @@ Output Schema:
       toast.error('Please verify the waste image before submitting.')
       return
     }
-    // Use AI estimated weight as amount fallback
-    const submittedAmount = verificationResult?.estimatedWeightKg
-      ? `${verificationResult.estimatedWeightKg} kg`
+    const submittedAmount = verificationResult
+      ? `${verificationResult.estimatedWeightKg} (${verificationResult.estimatedQuantity})`
       : 'Unknown'
 
     if (duplicateWarning?.isDuplicate) {
@@ -470,6 +467,8 @@ Output Schema:
         createdAt: report.createdAt instanceof Date
           ? report.createdAt.toISOString().split('T')[0]
           : new Date(report.createdAt).toISOString().split('T')[0],
+        confidence: verificationResult?.confidence,
+        priority: verificationResult?.priorityLevel || verificationResult?.priority,
       }
 
       setReports([formattedReport, ...reports])
@@ -509,10 +508,15 @@ Output Schema:
         }
 
         const recentReports = await getRecentReports()
-        setReports(recentReports.map(r => ({
-          ...r,
-          createdAt: r.createdAt instanceof Date ? r.createdAt.toISOString().split('T')[0] : new Date(r.createdAt as any).toISOString().split('T')[0],
-        })))
+        setReports(recentReports.map(r => {
+          const parsedResult = r.verificationResult ? (typeof r.verificationResult === 'string' ? JSON.parse(r.verificationResult) : r.verificationResult) : null
+          return {
+            ...r,
+            createdAt: r.createdAt instanceof Date ? r.createdAt.toISOString().split('T')[0] : new Date(r.createdAt as any).toISOString().split('T')[0],
+            confidence: parsedResult?.confidence || parsedResult?.aiConfidence,
+            priority: parsedResult?.priorityLevel || parsedResult?.priority || "High"
+          }
+        }))
       } else if (status === "unauthenticated") {
         router.push('/login')
       }
@@ -812,8 +816,8 @@ Output Schema:
                         </p>
                       </div>
                       <div className="text-right sm:border-l sm:border-gray-100 sm:pl-3 flex sm:flex-col justify-between items-end">
-                        <span className="text-xs font-extrabold text-green-700">{obj.estimatedWeightKg} kg</span>
-                        <span className="text-[10px] font-bold text-gray-400">Qty: ~{obj.quantity} | {obj.confidence}% conf</span>
+                        <span className="text-xs font-extrabold text-green-700">{obj.approximateWeightRangeKg || obj.estimatedWeightKg || 'Unknown'} kg</span>
+                        <span className="text-[10px] font-bold text-gray-400">Qty: {obj.approximateQuantityRange || obj.quantity || 'Unknown'} | {obj.confidence}% conf</span>
                       </div>
                     </div>
                   ))}
@@ -878,6 +882,7 @@ Output Schema:
             {isLoaded ? (
               <StandaloneSearchBox onLoad={onLoad} onPlacesChanged={onPlacesChanged}>
                 <input
+                  id="location-input"
                   type="text"
                   name="location"
                   value={newReport.location}
@@ -889,6 +894,7 @@ Output Schema:
               </StandaloneSearchBox>
             ) : (
               <input
+                id="location-input"
                 type="text"
                 name="location"
                 value={newReport.location}
@@ -907,21 +913,20 @@ Output Schema:
             )}
           </div>
 
-          {/* GPS Coordinates — shows full address auto-filled from GPS */}
+          {/* GPS Coordinates — shows coordinates auto-filled from GPS */}
           <div>
             <label className="block text-sm font-semibold text-gray-700 mb-1">GPS Location (Auto-filled)</label>
             <input
               type="text"
               name="gpsCoordinates"
-              value={locationGps.formattedAddress || (locationGps.lat ? `Lat: ${locationGps.lat.toFixed(5)}, Lng: ${locationGps.lng?.toFixed(5)}` : '')}
+              value={locationGps.lat ? `${locationGps.lat.toFixed(5)}, ${locationGps.lng?.toFixed(5)}` : ''}
               readOnly
               className="w-full px-4 py-2.5 border border-gray-200 rounded-xl bg-gray-50 text-sm text-gray-600 shadow-sm"
               placeholder="Auto-filled when GPS is captured"
             />
-            {locationGps.lat && (
+            {locationGps.lat && locationGps.wardNumber && (
               <p className="mt-1 text-[11px] text-gray-400 font-mono">
-                📍 {locationGps.lat.toFixed(5)}, {locationGps.lng?.toFixed(5)}
-                {locationGps.wardNumber && ` · Ward ${locationGps.wardNumber}`}
+                · Ward {locationGps.wardNumber}
               </p>
             )}
           </div>
@@ -983,7 +988,7 @@ Output Schema:
           <table className="w-full">
             <thead className="bg-gray-50 sticky top-0 border-b border-gray-100">
               <tr>
-                {['Reported Address', 'Type', 'Amount', 'Date'].map(h => (
+                {['Reported Address', 'Type', 'AI Estimated Amount', 'Date', 'AI Confidence', 'Priority'].map(h => (
                   <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">{h}</th>
                 ))}
               </tr>
@@ -998,11 +1003,22 @@ Output Schema:
                   <td className="px-4 py-3 text-xs text-gray-600">{report.wasteType}</td>
                   <td className="px-4 py-3 text-xs text-gray-600">{report.amount}</td>
                   <td className="px-4 py-3 text-xs text-gray-600">{report.createdAt}</td>
+                  <td className="px-4 py-3 text-xs text-gray-600">{report.confidence ? `${report.confidence}%` : 'N/A'}</td>
+                  <td className="px-4 py-3 text-xs">
+                    <span className={`px-2 py-1 rounded-full text-[10px] font-bold ${
+                      report.priority === 'Critical' ? 'bg-rose-100 text-rose-800' :
+                      report.priority === 'High' ? 'bg-red-100 text-red-800' :
+                      report.priority === 'Medium' ? 'bg-yellow-100 text-yellow-800' :
+                      'bg-green-100 text-green-800'
+                    }`}>
+                      {report.priority || 'Medium'}
+                    </span>
+                  </td>
                 </tr>
               ))}
               {reports.length === 0 && (
                 <tr>
-                  <td colSpan={4} className="text-center py-8 text-gray-400 text-sm">No reports yet. Be the first to report!</td>
+                  <td colSpan={6} className="text-center py-8 text-gray-400 text-sm">No reports yet. Be the first to report!</td>
                 </tr>
               )}
             </tbody>
