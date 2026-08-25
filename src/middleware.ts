@@ -1,56 +1,39 @@
-import { withAuth } from "next-auth/middleware";
 import { NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
+import { getToken } from "next-auth/jwt";
 
-export default withAuth(
-  function middleware(req: any) {
-    const token = req.nextauth?.token;
-    const role = (token?.role as string) || "citizen";
-    const pathname = req.nextUrl.pathname;
+export async function middleware(req: NextRequest) {
+  const path = req.nextUrl.pathname;
 
-    // Admin has complete access
-    if (role === "admin") {
-      return NextResponse.next();
+  // Protect collector routes server-side
+  if (
+    path.startsWith("/collect") ||
+    path.startsWith("/collector") ||
+    path.startsWith("/tasks") ||
+    path.startsWith("/cleanup")
+  ) {
+    const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
+
+    if (!token) {
+      const loginUrl = new URL("/login", req.url);
+      loginUrl.searchParams.set("callbackUrl", req.url);
+      return NextResponse.redirect(loginUrl);
     }
 
-    // Protect admin routes
-    if (pathname.startsWith("/admin")) {
-      return NextResponse.rewrite(new URL("/unauthorized", req.url));
+    // Must be role === 'collector' AND status === 'active'
+    if (token.role !== "collector" || token.status !== "active") {
+      return NextResponse.redirect(new URL("/unauthorized", req.url));
     }
-
-    // Protect collector routes
-    if (pathname.startsWith("/collect")) {
-      if (role !== "collector") {
-        return NextResponse.rewrite(new URL("/unauthorized", req.url));
-      }
-    }
-
-    // Protect citizen routes
-    if (pathname.startsWith("/report") || pathname.startsWith("/rewards")) {
-      if (role !== "citizen") {
-        return NextResponse.rewrite(new URL("/unauthorized", req.url));
-      }
-    }
-
-    return NextResponse.next();
-  },
-  {
-    callbacks: {
-      authorized: ({ req, token }: any) => {
-        const path = req.nextUrl.pathname;
-        if (path.startsWith("/api/auth") || path === "/login" || path === "/register" || path === "/") {
-          return true;
-        }
-        return !!token;
-      },
-    },
   }
-);
+
+  return NextResponse.next();
+}
 
 export const config = {
   matcher: [
-    "/admin/:path*",
     "/collect/:path*",
-    "/report/:path*",
-    "/rewards/:path*",
+    "/collector/:path*",
+    "/tasks/:path*",
+    "/cleanup/:path*",
   ],
 };

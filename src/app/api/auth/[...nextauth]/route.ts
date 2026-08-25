@@ -70,6 +70,7 @@ const authOptions: any = {
           email: user.email,
           name: user.name,
           role: user.role || "citizen",
+          status: user.status || "active",
         };
       }
     })
@@ -84,6 +85,17 @@ const authOptions: any = {
     async jwt({ token, user }: any) {
       if (user) {
         token.role = (user as any).role;
+        token.status = (user as any).status;
+      } else if (token?.sub) {
+        try {
+          const [dbUser] = await db.select({ role: Users.role, status: Users.status }).from(Users).where(eq(Users.id, Number(token.sub))).execute();
+          if (dbUser) {
+            token.role = dbUser.role;
+            token.status = dbUser.status;
+          }
+        } catch (e) {
+          console.error("Error refreshing token status:", e);
+        }
       }
       return token;
     },
@@ -91,6 +103,7 @@ const authOptions: any = {
       if (token && session.user) {
         session.user.id = token.sub as string;
         (session.user as any).role = token.role;
+        (session.user as any).status = token.status;
       }
       return session;
     },

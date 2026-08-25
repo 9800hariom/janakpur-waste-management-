@@ -53,6 +53,10 @@ export default function ReportPage() {
   const [errorMessage, setErrorMessage] = useState('')
   const [searchBox, setSearchBox] = useState<google.maps.places.SearchBox | null>(null)
 
+  // Optional Visual Scale Reference feature
+  const [hasScaleReference, setHasScaleReference] = useState<boolean>(false)
+  const [scaleReferenceType, setScaleReferenceType] = useState<string>('Dustbin')
+
   const { isLoaded } = useJsApiLoader({
     id: 'google-map-script',
     googleMapsApiKey: googleMapsApiKey!,
@@ -272,60 +276,95 @@ Respond ONLY in JSON (no markdown): { "isDuplicate": bool, "duplicateOfId": numb
     try {
       const base64Data = await readFileAsBase64(file)
 
-      const prompt = `You are green Janakpur AI, an expert environmental waste inspection assistant.
+      const scaleContext = hasScaleReference
+        ? `Visual Scale Reference Context: A user-indicated scale reference object of type "${scaleReferenceType}" is present in the image.`
+        : `Visual Scale Reference Context: No scale reference object indicated by user.`
 
-Your task is to analyze a waste image using computer vision and return ONLY valid JSON.
+      const prompt = `You are green Janakpur AI, an expert environmental waste inspection assistant using computer vision.
 
-RULES
-1. Analyze ONLY what is visible. Never invent objects that are not present.
-2. If uncertain, lower the confidence score. Do not guess.
-3. NEVER use hard-coded or fixed numbers (like "3 kg"). Every image must produce a unique, dynamic analysis based on visible evidence.
-4. Weight MUST ALWAYS be an APPROXIMATE ESTIMATE range (e.g., "0.5-1 kg", "8-12 kg"), not an exact measurement. Estimate using visible item type, quantity, size, density, and material.
-5. Quantity MUST ALWAYS be an approximate item count range (e.g., "8-12", "30-50").
-6. If the image is unclear or contains little waste, return a low confidence score and explain the limitation.
-7. Give practical, image-specific recycling recommendations and actions based on the detected waste.
-8. Identify recyclable and non-recyclable materials accurately.
-9. Return JSON only. No markdown.
+${scaleContext}
 
-Allowed Categories: Plastic, Paper, Cardboard, Glass, Metal, Organic, Electronic, Textile, Rubber, Construction, Mixed Waste, Hazardous, Other
-Collection Priority: Low, Medium, High, Critical
-Cleanliness: Clean, Slightly Dirty, Dirty, Extremely Dirty
-Hazards: None, Sharp Objects, Medical Waste, Chemical Waste, Broken Glass, Fire Risk, Biohazard
-Confidence: 0-100
+Analyze the uploaded Citizen waste image carefully.
 
-Output Schema:
+Return ONLY a single valid JSON object with NO markdown fences, matching this EXACT schema:
+
 {
-  "success": true,
-  "analysis": {
-    "sceneType": "",
-    "overallCondition": "",
-    "confidence": 0,
-    "wasteObjects": [
-      {
-        "name": "",
-        "category": "",
-        "approximateQuantityRange": "",
-        "approximateWeightRangeKg": "",
-        "material": "",
-        "condition": "",
-        "recyclable": true,
-        "confidence": 0
-      }
-    ],
-    "estimatedTotalWeightKg": "",
-    "estimatedTotalItems": "",
-    "primaryWasteType": "",
-    "secondaryWasteType": "",
-    "cleanliness": "",
-    "collectionPriority": "",
-    "environmentRisk": "",
-    "hazards": [""],
-    "recyclingSuggestions": [""],
-    "recommendedActions": [""],
-    "generatedDescription": "",
-    "summary": ""
-  }
-}`
+  "verificationStatus": "Verified",
+  "wasteDetected": true,
+  "wasteCategory": "Plastic & Mixed Recyclables",
+  "wasteTypes": [
+    "Plastic Containers",
+    "Plastic Packaging",
+    "Paper",
+    "Cardboard"
+  ],
+  "confidence": 88,
+  "estimatedQuantity": {
+    "value": "Approximately 15–20",
+    "confidence": 75,
+    "basis": "Visible count estimate"
+  },
+  "dimensions": {
+    "lengthCm": null,
+    "widthCm": null,
+    "heightCm": null,
+    "status": "Cannot reliably estimate from image",
+    "confidence": 0
+  },
+  "volume": {
+    "valueM3": null,
+    "status": "Cannot reliably estimate from image",
+    "confidence": 0
+  },
+  "density": {
+    "class": null,
+    "status": "Cannot reliably determine",
+    "confidence": 0
+  },
+  "weightRange": {
+    "minKg": null,
+    "maxKg": null,
+    "status": "Cannot reliably estimate without sufficient scale/volume evidence",
+    "confidence": 0
+  },
+  "recyclability": {
+    "status": "Partially Recyclable",
+    "confidence": 88
+  },
+  "priorityLevel": "High",
+  "environmentalRisk": "Medium",
+  "generatedDescription": "The image shows scattered plastic containers and mixed paper and cardboard waste accumulated in an outdoor area.",
+  "recyclingRecommendations": [
+    "Separate plastic containers from paper and cardboard.",
+    "Keep recyclable materials clean and dry before recycling.",
+    "Send recyclable plastic, paper and cardboard to an appropriate recycling facility."
+  ],
+  "duplicateCheck": {
+    "isPotentialDuplicate": false,
+    "similarityConfidence": 91,
+    "matchedReportId": null,
+    "reason": "No sufficiently similar recent report was identified."
+  },
+  "aiSummary": "Mixed recyclable waste has been detected. The image provides sufficient evidence to classify the waste and estimate its visible quantity, but there is not enough reliable visual scale information to estimate physical dimensions, volume or weight.",
+  "measurementWarning": "Physical measurements and weight require field measurement or a reliable visual scale reference."
+}
+
+CRITICAL RULES:
+1. Distinguish between VISUALLY DETECTABLE info vs PHYSICAL VISUAL ESTIMATION.
+2. Physical estimates (dimensions, volume, density, weightRange) MUST ONLY be estimated if reliable visual scale evidence exists in the image (e.g. known size object, dustbin, vehicle, person, door, ruler, standard container).
+3. If no reliable reference exists:
+   - Set lengthCm, widthCm, heightCm to null and dimensions.status to "Cannot reliably estimate from image".
+   - Set valueM3 to null and volume.status to "Cannot reliably estimate from image".
+   - Set class to null and density.status to "Cannot reliably determine".
+   - Set minKg and maxKg to null and weightRange.status to "Cannot reliably estimate without sufficient scale/volume evidence".
+4. NEVER fabricate physical dimensions or volume simply because waste looks large.
+5. NEVER estimate weight or weight range if dimensions or volume cannot be estimated reliably! Weight estimation depends directly on volume and density.
+6. If visual scale evidence EXISTS:
+   - Estimate lengthCm, widthCm, heightCm in centimeters.
+   - Calculate volume valueM3 (approx Length × Width × Height in meters).
+   - Determine density class ("Low", "Medium", "High", "Mixed/Variable").
+   - Calculate weightRange minKg and maxKg (derive range from volume × density).
+7. Respond ONLY with valid JSON.`
 
       const text = await analyzeImages(prompt, [{ base64: base64Data, mimeType: file.type }])
       
@@ -346,53 +385,182 @@ Output Schema:
       }
 
       if (parsedResult) {
-        const analysis = parsedResult.analysis || parsedResult
-        const confRaw = analysis.confidence !== undefined ? analysis.confidence : (analysis.aiConfidence !== undefined ? analysis.aiConfidence : 95)
+        const r = parsedResult.analysis || parsedResult
+
+        const confRaw = r.confidence !== undefined ? r.confidence : (r.aiConfidence !== undefined ? r.aiConfidence : 85)
         const confidenceVal = confRaw <= 1 ? Math.round(confRaw * 100) : Math.round(confRaw)
-        
-        const wasteCat = analysis.primaryWasteType || analysis.wasteCategory || "Plastic"
-        const weightVal = analysis.estimatedTotalWeightKg || analysis.estimatedWeightKg || "Unknown weight"
-        const priorityVal = analysis.collectionPriority || analysis.priorityLevel || analysis.priority || "High"
-        const recList = Array.isArray(analysis.recyclingSuggestions) 
-          ? analysis.recyclingSuggestions 
-          : (Array.isArray(analysis.recyclingRecommendation) ? analysis.recyclingRecommendation : ["Separate recyclables for processing."])
-        const typesList = Array.isArray(analysis.wasteObjects) 
-          ? analysis.wasteObjects.map((o: any) => o.name) 
-          : (Array.isArray(analysis.wasteTypes) ? analysis.wasteTypes : [wasteCat])
+
+        // Parse & normalize dimensions
+        let dimObj = r.dimensions || null
+        if (!dimObj && r.estimatedDimensions) {
+          const d = r.estimatedDimensions
+          if (d.lengthCm || d.widthCm || d.heightCm) {
+            dimObj = {
+              lengthCm: d.lengthCm ?? null,
+              widthCm: d.widthCm ?? null,
+              heightCm: d.heightCm ?? null,
+              status: "Estimated from visual reference",
+              confidence: confidenceVal,
+            }
+          }
+        }
+        if (!dimObj) {
+          dimObj = {
+            lengthCm: null,
+            widthCm: null,
+            heightCm: null,
+            status: "Cannot reliably estimate from image",
+            confidence: 0,
+          }
+        }
+
+        const hasValidDims = dimObj.lengthCm !== null && dimObj.lengthCm !== undefined && !dimObj.status?.includes("Cannot")
+
+        // Parse & normalize volume
+        let volObj = r.volume || null
+        if (!volObj && r.estimatedVolumeM3 !== undefined && r.estimatedVolumeM3 !== null) {
+          volObj = {
+            valueM3: r.estimatedVolumeM3,
+            status: "Estimated from visual dimensions",
+            confidence: confidenceVal,
+          }
+        }
+        const hasValidVol = volObj?.valueM3 !== null && volObj?.valueM3 !== undefined && !volObj?.status?.includes("Cannot")
+
+        if (!hasValidDims || !hasValidVol) {
+          volObj = {
+            valueM3: null,
+            status: "Cannot reliably estimate from image",
+            confidence: 0,
+          }
+        }
+
+        // Parse & normalize density
+        let densityObj = r.density || null
+        if (!densityObj && r.densityClass) {
+          densityObj = {
+            class: r.densityClass !== "Cannot Determine" ? r.densityClass : null,
+            status: r.densityClass !== "Cannot Determine" ? "Determined from visible waste category" : "Cannot reliably determine",
+            confidence: r.densityClass !== "Cannot Determine" ? confidenceVal : 0,
+          }
+        }
+        if (!densityObj) {
+          densityObj = {
+            class: null,
+            status: "Cannot reliably determine",
+            confidence: 0,
+          }
+        }
+
+        // Parse & normalize weight range - CRITICAL INVARIANT SAFEGUARD
+        let weightObj = r.weightRange || null
+        if (!weightObj && r.estimatedWeightRangeKg && typeof r.estimatedWeightRangeKg.min === 'number') {
+          weightObj = {
+            minKg: r.estimatedWeightRangeKg.min,
+            maxKg: r.estimatedWeightRangeKg.max,
+            status: "Estimated from volume and density",
+            confidence: confidenceVal,
+          }
+        }
+
+        // IF DIMENSIONS OR VOLUME CANNOT BE ESTIMATED RELIABLY, WEIGHT RANGE MUST BE NULL!
+        if (!hasValidDims || !hasValidVol) {
+          weightObj = {
+            minKg: null,
+            maxKg: null,
+            status: "Cannot reliably estimate without sufficient scale/volume evidence",
+            confidence: 0,
+          }
+        }
+
+        // Parse quantity
+        let qtyObj = r.estimatedQuantity || null
+        if (typeof qtyObj === 'string') {
+          qtyObj = {
+            value: qtyObj,
+            confidence: confidenceVal,
+            basis: "Visible count estimate",
+          }
+        } else if (!qtyObj) {
+          qtyObj = {
+            value: "Scattered / uncountable",
+            confidence: 0,
+            basis: "Visual inspection",
+          }
+        }
+
+        // Parse recyclability
+        let recyclabilityObj = r.recyclability || null
+        if (typeof recyclabilityObj === 'string') {
+          recyclabilityObj = {
+            status: recyclabilityObj,
+            confidence: confidenceVal,
+          }
+        } else if (!recyclabilityObj) {
+          recyclabilityObj = {
+            status: r.recyclable ? (typeof r.recyclable === 'string' ? r.recyclable : 'Mostly Recyclable') : 'Partially Recyclable',
+            confidence: confidenceVal,
+          }
+        }
+
+        const wasteDetected = r.wasteDetected !== undefined ? r.wasteDetected : true
+        const isVerified = wasteDetected && confidenceVal >= 60
+
+        const recList = Array.isArray(r.recyclingRecommendations)
+          ? r.recyclingRecommendations
+          : Array.isArray(r.recyclingSuggestions)
+          ? r.recyclingSuggestions
+          : ["Separate recyclable materials for processing."]
+
+        const wasteTypes = Array.isArray(r.wasteTypes)
+          ? r.wasteTypes
+          : Array.isArray(r.wasteObjects)
+          ? r.wasteObjects.map((o: any) => o.name)
+          : [r.wasteCategory || r.primaryWasteType || "Mixed Waste"]
+
+        const dupCheckObj = r.duplicateCheck || {
+          isPotentialDuplicate: false,
+          similarityConfidence: 0,
+          matchedReportId: null,
+          reason: "No sufficiently similar recent report was identified.",
+        }
 
         const normalizedResult = {
-          verificationStatus: "Verified",
+          verificationStatus: isVerified ? "Verified" : "Manual Review Recommended",
+          wasteDetected,
+          wasteCategory: r.wasteCategory || r.primaryWasteType || "Plastic & Mixed Recyclables",
+          wasteTypes,
           confidence: confidenceVal,
           aiConfidence: confidenceVal,
-          wasteDetected: Array.isArray(analysis.wasteObjects) ? analysis.wasteObjects.length > 0 : (analysis.wasteDetected !== undefined ? analysis.wasteDetected : true),
-          wasteCategory: wasteCat,
-          wasteTypes: typesList,
-          estimatedWeightKg: weightVal,
-          estimatedQuantity: analysis.estimatedTotalItems || analysis.estimatedQuantity || "Unknown quantity",
-          wasteDensity: (priorityVal === 'Critical' || priorityVal === 'High') ? "High" : "Medium",
-          recyclable: Array.isArray(analysis.wasteObjects) ? (analysis.wasteObjects.some((o: any) => o.recyclable) ? "Partially Recyclable" : "Non-Recyclable") : (analysis.recyclable || "Partially Recyclable"),
-          priorityLevel: priorityVal,
-          priority: priorityVal,
-          generatedDescription: analysis.generatedDescription || analysis.wasteDescription || "Waste pile detected.",
-          wasteDescription: analysis.generatedDescription || analysis.wasteDescription || "Waste pile detected.",
-          recyclingRecommendation: recList,
-          recyclingSuggestions: recList.join(" "),
-          environmentalRisk: analysis.environmentRisk || analysis.environmentalRisk || "Medium",
-          cleanlinessCondition: analysis.cleanliness || analysis.cleanlinessCondition || "Dirty",
-          aiRecommendation: Array.isArray(analysis.recommendedActions) ? analysis.recommendedActions.join(" ") : (analysis.aiRecommendation || "This waste should be collected immediately."),
-          summary: analysis.summary || "Waste detected with high confidence. Should be collected as soon as possible.",
-          finalDecision: "Accept Report",
-          sceneType: analysis.sceneType,
-          overallCondition: analysis.overallCondition,
-          wasteObjects: analysis.wasteObjects,
-          hazards: analysis.hazards,
-          recommendedActions: analysis.recommendedActions,
-          ...analysis,
-          ...parsedResult
+          estimatedQuantity: qtyObj,
+          dimensions: dimObj,
+          volume: volObj,
+          density: densityObj,
+          weightRange: weightObj,
+          recyclability: recyclabilityObj,
+          priorityLevel: r.priorityLevel || r.priority || "High",
+          environmentalRisk: r.environmentalRisk || r.environmentRisk || "Medium",
+          generatedDescription: r.generatedDescription || r.wasteDescription || "Waste pile detected in reported area.",
+          recyclingRecommendations: recList,
+          duplicateCheck: dupCheckObj,
+          aiSummary: r.aiSummary || r.summary || (isVerified ? "Waste detected and verified." : "Low confidence analysis."),
+          measurementWarning: r.measurementWarning || "Physical measurements and weight require field measurement or a reliable visual scale reference.",
+          // Legacy compat fields for external components
+          estimatedDimensions: (dimObj.lengthCm && dimObj.widthCm && dimObj.heightCm)
+            ? { lengthCm: dimObj.lengthCm, widthCm: dimObj.widthCm, heightCm: dimObj.heightCm }
+            : null,
+          estimatedVolumeM3: volObj.valueM3,
+          densityClass: densityObj.class,
+          estimatedWeightRangeKg: (weightObj.minKg !== null && weightObj.minKg !== undefined)
+            ? { min: weightObj.minKg, max: weightObj.maxKg }
+            : null,
+          estimatedWeightKg: (weightObj.minKg !== null && weightObj.minKg !== undefined)
+            ? `~${weightObj.minKg}–${weightObj.maxKg} kg`
+            : "Not reliably estimable",
+          ...r,
         }
 
         setVerificationResult(normalizedResult)
-        // Only auto-fill waste type from AI — do NOT auto-fill amount
         setNewReport(prev => ({
           ...prev,
           type: normalizedResult.wasteCategory,
@@ -400,12 +568,12 @@ Output Schema:
 
         const dbDupCheck = await checkDuplicateImageInDb(base64Data)
 
-        if (normalizedResult.isDuplicate || dbDupCheck.isDuplicate) {
+        if (normalizedResult.isDuplicate || dbDupCheck.isDuplicate || dupCheckObj.isPotentialDuplicate) {
           setDuplicateWarning({
             isDuplicate: true,
-            duplicateOfId: dbDupCheck.duplicateOfId || normalizedResult.similarReportId,
-            confidence: (normalizedResult.duplicateConfidence || 100) / 100,
-            reason: dbDupCheck.reason || `This image is duplicate (highly similar to previous report #${normalizedResult.similarReportId}).`
+            duplicateOfId: dbDupCheck.duplicateOfId || normalizedResult.similarReportId || dupCheckObj.matchedReportId,
+            confidence: (normalizedResult.duplicateConfidence || dupCheckObj.similarityConfidence || 100) / 100,
+            reason: dbDupCheck.reason || dupCheckObj.reason || `This image is duplicate (highly similar to previous report #${normalizedResult.similarReportId}).`
           })
           toast.error(`This image is duplicate! You cannot submit duplicate images.`, { duration: 5000 })
         } else {
@@ -430,9 +598,18 @@ Output Schema:
       toast.error('Please verify the waste image before submitting.')
       return
     }
-    const submittedAmount = verificationResult
-      ? `${verificationResult.estimatedWeightKg} (${verificationResult.estimatedQuantity})`
-      : 'Unknown'
+    const qtyVal = typeof verificationResult?.estimatedQuantity === 'object'
+      ? verificationResult.estimatedQuantity?.value
+      : verificationResult?.estimatedQuantity
+
+    let submittedAmount = 'Visual estimate'
+    if (verificationResult?.weightRange?.minKg !== null && verificationResult?.weightRange?.minKg !== undefined) {
+      submittedAmount = `~${verificationResult.weightRange.minKg}–${verificationResult.weightRange.maxKg} kg (${qtyVal || 'Visual count'})`
+    } else if (verificationResult?.estimatedWeightRangeKg?.min !== undefined) {
+      submittedAmount = `~${verificationResult.estimatedWeightRangeKg.min}–${verificationResult.estimatedWeightRangeKg.max} kg (${qtyVal || 'Visual count'})`
+    } else if (qtyVal) {
+      submittedAmount = `${qtyVal} (Weight unestimable without scale)`
+    }
 
     if (duplicateWarning?.isDuplicate) {
       toast.error('This image is duplicate! Report submission is blocked.')
@@ -558,6 +735,44 @@ Output Schema:
             </div>
           </div>
         </div>
+        {/* Optional Visual Scale Reference Control */}
+        <div className="mb-6 p-4 bg-gray-50 border border-gray-200 rounded-xl space-y-3">
+          <label className="flex items-center gap-2.5 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={hasScaleReference}
+              onChange={(e) => setHasScaleReference(e.target.checked)}
+              className="w-4 h-4 text-green-600 rounded focus:ring-green-500 cursor-pointer"
+            />
+            <span className="text-xs font-bold text-gray-800">
+              Is a size reference visible in the image? <span className="text-gray-400 font-normal">(Optional)</span>
+            </span>
+          </label>
+
+          {hasScaleReference && (
+            <div className="pt-2 border-t border-gray-200 animate-in fade-in duration-200">
+              <label className="block text-xs font-semibold text-gray-600 mb-1.5">
+                Reference Type:
+              </label>
+              <select
+                value={scaleReferenceType}
+                onChange={(e) => setScaleReferenceType(e.target.value)}
+                className="w-full text-xs px-3 py-2 border border-gray-200 rounded-lg bg-white text-gray-800 focus:ring-2 focus:ring-green-400 focus:outline-none font-medium"
+              >
+                <option value="Ruler">Ruler / Measurement Marker</option>
+                <option value="Person">Person / Human</option>
+                <option value="Vehicle">Vehicle / Car / Motorbike</option>
+                <option value="Dustbin">Dustbin / Standard Trash Bin</option>
+                <option value="Door">Door / Entrance</option>
+                <option value="Standard Container">Standard Container / Box</option>
+                <option value="Other">Other Known Object</option>
+              </select>
+              <p className="text-[11px] text-gray-500 mt-1 font-medium">
+                AI will use this scale reference to estimate physical dimensions and volume if clearly visible.
+              </p>
+            </div>
+          )}
+        </div>
 
         {preview && (
           <div className="mt-2 mb-6">
@@ -592,262 +807,219 @@ Output Schema:
 
         {verificationStatus === 'success' && verificationResult && (
           <div className="bg-white/60 backdrop-blur-xl border border-white/80 shadow-2xl p-6 sm:p-8 mb-8 rounded-3xl relative overflow-hidden">
-            {/* Header / Glow Accent */}
+            {/* Glow accents */}
             <div className="absolute top-0 right-0 w-64 h-64 bg-green-500/10 rounded-full blur-3xl -z-10" />
             <div className="absolute bottom-0 left-0 w-64 h-64 bg-blue-500/10 rounded-full blur-3xl -z-10" />
-            
+
+            {/* Header */}
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between border-b border-gray-100 pb-5 mb-6 gap-4">
               <div className="flex items-center gap-3">
                 <div className="p-3 bg-gradient-to-tr from-green-500 to-emerald-600 rounded-2xl text-white shadow-lg shadow-green-500/20">
                   <Sparkles className="h-6 w-6" />
                 </div>
                 <div>
-                  <h3 className="text-xl font-extrabold text-gray-900 tracking-tight">AI Waste Analysis Report</h3>
-                  <p className="text-xs text-gray-500 mt-0.5 font-medium">green Janakpur Waste Analysis Assistant</p>
+                  <h3 className="text-xl font-extrabold text-gray-900 tracking-tight">AI WASTE ANALYSIS</h3>
+                  <p className="text-xs text-gray-500 mt-0.5 font-medium">Smart Janakpur Waste Analysis Assistant</p>
                 </div>
               </div>
               <div className="flex items-center gap-2">
-                <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">Verification:</span>
+                <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">Status:</span>
                 <span className={`px-4 py-1.5 rounded-full text-xs font-black uppercase tracking-wider border shadow-sm ${
-                  verificationResult.verificationStatus === 'Verified' 
-                    ? 'bg-green-50 border-green-200 text-green-700 shadow-green-500/5' 
-                    : 'bg-yellow-50 border-yellow-200 text-yellow-700 shadow-yellow-500/5'
+                  (verificationResult.verificationStatus === 'Verified' || verificationResult.verificationStatus === 'Verified ✓')
+                    ? 'bg-green-50 border-green-200 text-green-700'
+                    : 'bg-amber-50 border-amber-200 text-amber-800'
                 }`}>
-                  {verificationResult.verificationStatus || 'Verified'} ({verificationResult.confidence || verificationResult.aiConfidence}%)
+                  {verificationResult.verificationStatus === 'Verified' ? '✓ Verified' : (verificationResult.verificationStatus || 'Manual Review Recommended')}
                 </span>
               </div>
             </div>
 
-            {/* Summary Banner */}
-            {verificationResult.summary && (
-              <div className="bg-gradient-to-r from-green-50 to-emerald-50 border border-green-200 rounded-2xl p-4 mb-6 flex items-start gap-3 text-green-900 shadow-sm">
-                <Sparkles className="h-5 w-5 text-green-600 mt-0.5 flex-shrink-0" />
-                <div>
-                  <p className="text-xs font-bold text-green-900 uppercase tracking-wider">AI Findings Summary</p>
-                  <p className="text-xs text-green-800 mt-1 font-medium leading-relaxed">{verificationResult.summary}</p>
-                </div>
-              </div>
-            )}
-
-            {/* AI Warning Box for Duplicates */}
+            {/* Duplicate Warning */}
             {duplicateWarning?.isDuplicate && (
               <div className="bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200 rounded-2xl p-4 mb-6 flex items-start gap-3 text-amber-900 shadow-sm">
                 <AlertTriangle className="h-5 w-5 text-amber-500 mt-0.5 flex-shrink-0" />
                 <div>
                   <p className="text-sm font-bold text-amber-900">Duplicate Report Identified</p>
-                  <p className="text-xs text-amber-800 mt-1 font-medium">Similar to Report #{duplicateWarning.duplicateOfId} with {(duplicateWarning.confidence * 100).toFixed(0)}% matching details. {duplicateWarning.reason}</p>
+                  <p className="text-xs text-amber-800 mt-1 font-medium">Similar to Report #{duplicateWarning.duplicateOfId} with {(duplicateWarning.confidence * 100).toFixed(0)}% match. {duplicateWarning.reason}</p>
                 </div>
               </div>
             )}
 
-            {/* AI Warning Box for No Waste Detected */}
+            {/* No Waste Warning */}
             {verificationResult.wasteDetected === false && (
               <div className="bg-gradient-to-r from-red-50 to-rose-50 border-2 border-red-500 rounded-2xl p-5 mb-6 flex items-start gap-3 text-red-900 shadow-md">
                 <AlertCircle className="h-7 w-7 text-red-600 mt-0.5 flex-shrink-0 animate-pulse" />
                 <div>
                   <h4 className="text-base font-black text-red-900 uppercase tracking-tight">No Waste Detected in Image</h4>
-                  <p className="text-xs font-bold text-red-800 mt-1">
-                    AI analysis found no waste in this image. You cannot submit a waste report without an image showing actual waste.
-                  </p>
-                  <p className="text-[11px] font-bold text-red-700 mt-2 bg-red-100 px-2.5 py-1 rounded-lg inline-block">
-                    🚫 Report Submission BLOCKED: Please upload a clear photo containing waste.
-                  </p>
+                  <p className="text-xs font-bold text-red-800 mt-1">AI analysis found no waste in this image. Upload a clear photo containing actual waste.</p>
+                  <p className="text-[11px] font-bold text-red-700 mt-2 bg-red-100 px-2.5 py-1 rounded-lg inline-block">🚫 Report Submission BLOCKED</p>
                 </div>
               </div>
             )}
 
-            {/* Main Stats Grid */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
-              
-              {/* Left Column: Metrics & Confidence */}
-              <div className="space-y-5 bg-white/40 p-4 rounded-2xl border border-white/60">
-                <h4 className="text-xs font-black text-gray-500 uppercase tracking-widest border-b border-gray-100 pb-2">Confidence & Quantity</h4>
-                
-                {/* Confidence Meter */}
-                <div>
-                  <div className="flex justify-between text-xs font-bold text-gray-700 mb-1.5">
-                    <span>AI Confidence</span>
+            {/* ── AI ANALYSIS SECTIONS ── */}
+            <div className="space-y-4">
+
+              {/* Section 1 & 2: Waste Detected Category + Waste Types */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="bg-white/80 p-3.5 rounded-xl border border-gray-100">
+                  <p className="text-[10px] text-gray-400 font-black uppercase tracking-widest mb-1">Waste Detected</p>
+                  <p className="text-sm font-extrabold text-gray-800">{verificationResult.wasteCategory || 'Plastic & Mixed Recyclables'}</p>
+                </div>
+                <div className="bg-white/80 p-3.5 rounded-xl border border-gray-100">
+                  <p className="text-[10px] text-gray-400 font-black uppercase tracking-widest mb-1">Waste Types</p>
+                  {Array.isArray(verificationResult.wasteTypes) && verificationResult.wasteTypes.length > 0 ? (
+                    <div className="flex flex-wrap gap-1.5 mt-0.5">
+                      {verificationResult.wasteTypes.map((t: string, idx: number) => (
+                        <span key={idx} className="bg-gray-100 text-gray-700 px-2 py-0.5 rounded-md text-[11px] font-semibold">{t}</span>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-xs font-semibold text-gray-500">—</p>
+                  )}
+                </div>
+              </div>
+
+              {/* Section 3 & 4: Confidence + Quantity */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="bg-white/80 p-3.5 rounded-xl border border-gray-100">
+                  <p className="text-[10px] text-gray-400 font-black uppercase tracking-widest mb-1.5">AI Confidence</p>
+                  <div className="flex justify-between text-xs font-bold text-gray-700 mb-1">
+                    <span>Overall Visual Confidence</span>
                     <span className="text-green-600 font-extrabold">{verificationResult.confidence || verificationResult.aiConfidence}%</span>
                   </div>
                   <div className="w-full bg-gray-200/60 rounded-full h-2">
-                    <div className="bg-gradient-to-r from-green-500 to-emerald-600 h-2 rounded-full shadow-inner transition-all duration-500" style={{ width: `${verificationResult.confidence || verificationResult.aiConfidence}%` }}></div>
+                    <div className="bg-gradient-to-r from-green-500 to-emerald-600 h-2 rounded-full transition-all duration-500" style={{ width: `${verificationResult.confidence || verificationResult.aiConfidence}%` }} />
                   </div>
                 </div>
-
-                <div className="bg-white/80 p-3 rounded-xl border border-gray-100">
-                  <p className="text-[10px] text-gray-400 font-black uppercase">Est. Quantity</p>
-                  <p className="text-xs font-extrabold text-gray-800 mt-1">{verificationResult.estimatedQuantity}</p>
-                </div>
-
-                <div className="bg-white/80 p-3 rounded-xl border border-gray-100">
-                  <p className="text-[10px] text-gray-400 font-black uppercase">Cleanliness Condition</p>
-                  <p className="text-xs font-extrabold text-gray-800 mt-1">{verificationResult.cleanlinessCondition}</p>
-                </div>
-              </div>
-
-              {/* Middle Column: Classification Details */}
-              <div className="grid grid-cols-2 gap-3 bg-white/40 p-4 rounded-2xl border border-white/60">
-                <div className="col-span-2 text-xs font-black text-gray-500 uppercase tracking-widest border-b border-gray-100 pb-2">Classification</div>
-                
-                <div className="bg-white/80 p-2.5 rounded-xl border border-gray-100">
-                  <p className="text-[10px] text-gray-400 font-black uppercase">Waste Category</p>
-                  <p className="text-sm font-extrabold text-gray-800 capitalize mt-0.5">{verificationResult.wasteCategory}</p>
-                </div>
-                <div className="bg-white/80 p-2.5 rounded-xl border border-gray-100">
-                  <p className="text-[10px] text-gray-400 font-black uppercase">Waste Detected</p>
-                  <p className={`text-sm font-extrabold mt-0.5 ${verificationResult.wasteDetected ? 'text-green-600' : 'text-red-500'}`}>
-                    {verificationResult.wasteDetected ? '✔ Waste Found' : '✘ No Waste'}
+                <div className="bg-white/80 p-3.5 rounded-xl border border-gray-100">
+                  <p className="text-[10px] text-gray-400 font-black uppercase tracking-widest mb-1">Estimated Quantity</p>
+                  <p className="text-xs font-extrabold text-gray-800">
+                    {typeof verificationResult.estimatedQuantity === 'object'
+                      ? verificationResult.estimatedQuantity.value
+                      : (verificationResult.estimatedQuantity || '—')}
                   </p>
                 </div>
-                <div className="bg-white/80 p-2.5 rounded-xl border border-gray-100">
-                  <p className="text-[10px] text-gray-400 font-black uppercase">Est. Weight</p>
-                  <p className="text-sm font-extrabold text-gray-800 mt-0.5">{verificationResult.estimatedWeightKg} kg</p>
-                </div>
-                <div className="bg-white/80 p-2.5 rounded-xl border border-gray-100">
-                  <p className="text-[10px] text-gray-400 font-black uppercase">Waste Density</p>
-                  <p className="text-sm font-extrabold text-gray-800 mt-0.5 capitalize">{verificationResult.wasteDensity}</p>
-                </div>
-                <div className="bg-white/80 p-2.5 rounded-xl border border-gray-100 col-span-2">
-                  <p className="text-[10px] text-gray-400 font-black uppercase mb-1">Recyclable Status</p>
-                  <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold ${
-                    verificationResult.recyclable === 'Recyclable'
-                      ? 'bg-green-100 text-green-800'
-                      : verificationResult.recyclable === 'Partially Recyclable'
-                      ? 'bg-blue-100 text-blue-800'
-                      : 'bg-gray-100 text-gray-800'
-                  }`}>
-                    {verificationResult.recyclable}
-                  </span>
-                </div>
               </div>
 
-              {/* Right Column: Risk & Priority */}
-              <div className="grid grid-cols-2 gap-3 bg-white/40 p-4 rounded-2xl border border-white/60">
-                <div className="col-span-2 text-xs font-black text-gray-500 uppercase tracking-widest border-b border-gray-100 pb-2">Risks & Priority</div>
-                
-                <div className="bg-white/80 p-2.5 rounded-xl border border-gray-100">
-                  <p className="text-[10px] text-gray-400 font-black uppercase">Environmental Risk</p>
-                  <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold mt-1 ${
-                    verificationResult.environmentalRisk === 'Critical' 
-                      ? 'bg-rose-100 text-rose-800' 
-                      : verificationResult.environmentalRisk === 'High'
-                      ? 'bg-red-100 text-red-800'
-                      : 'bg-green-100 text-green-800'
-                  }`}>
-                    {verificationResult.environmentalRisk}
-                  </span>
-                </div>
-                <div className="bg-white/80 p-2.5 rounded-xl border border-gray-100">
-                  <p className="text-[10px] text-gray-400 font-black uppercase">Priority Level</p>
-                  <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold mt-1 ${
-                    verificationResult.priorityLevel === 'Critical' || verificationResult.priority === 'Emergency'
-                      ? 'bg-rose-100 text-rose-800 animate-pulse' 
-                      : (verificationResult.priorityLevel || verificationResult.priority) === 'High'
-                      ? 'bg-red-100 text-red-800'
-                      : 'bg-blue-100 text-blue-800'
-                  }`}>
-                    {verificationResult.priorityLevel || verificationResult.priority}
-                  </span>
-                </div>
-                <div className="bg-white/80 p-2.5 rounded-xl border border-gray-100 col-span-2">
-                  <p className="text-[10px] text-gray-400 font-black uppercase">GPS Validation</p>
-                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold mt-1 bg-green-100 text-green-800">
-                    Location Coordinates Captured
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            {/* Scene Type & Overall Condition */}
-            {(verificationResult.sceneType || verificationResult.overallCondition) && (
-              <div className="bg-white/60 p-4 rounded-2xl border border-white/80 mb-4">
-                <div className="flex items-center justify-between mb-1.5">
-                  <span className="text-xs font-black text-gray-500 uppercase tracking-wider">Scene Assessment</span>
-                  {verificationResult.sceneType && (
-                    <span className="bg-emerald-100 text-emerald-800 text-[10px] font-extrabold px-2.5 py-0.5 rounded-full">
-                      📍 {verificationResult.sceneType}
-                    </span>
-                  )}
-                </div>
-                {verificationResult.overallCondition && (
-                  <p className="text-xs text-gray-700 font-medium leading-relaxed">{verificationResult.overallCondition}</p>
+              {/* Section 5: Physical Size Estimation */}
+              <div className="bg-white/80 p-4 rounded-xl border border-gray-100">
+                <p className="text-[10px] text-gray-400 font-black uppercase tracking-widest mb-2">Physical Size Estimation</p>
+                {verificationResult.dimensions?.lengthCm !== null && verificationResult.dimensions?.lengthCm !== undefined ? (
+                  <div className="space-y-2">
+                    <div className="flex flex-wrap gap-3 text-xs font-semibold text-gray-700">
+                      <span className="bg-blue-50 text-blue-700 px-2.5 py-1 rounded-lg border border-blue-100">Length: ~{verificationResult.dimensions.lengthCm} cm</span>
+                      <span className="bg-blue-50 text-blue-700 px-2.5 py-1 rounded-lg border border-blue-100">Width: ~{verificationResult.dimensions.widthCm} cm</span>
+                      <span className="bg-blue-50 text-blue-700 px-2.5 py-1 rounded-lg border border-blue-100">Height: ~{verificationResult.dimensions.heightCm} cm</span>
+                    </div>
+                    {hasScaleReference && (
+                      <p className="text-[11px] text-green-700 font-medium bg-green-50 px-2.5 py-1 rounded-md inline-block">
+                        Visual estimate based on available scale/reference information ({scaleReferenceType}).
+                      </p>
+                    )}
+                  </div>
+                ) : (
+                  <div className="space-y-1.5 text-xs text-gray-600">
+                    <p className="flex items-center gap-2"><span className="font-semibold text-gray-700">Length:</span> <span className="text-gray-500 italic">Not reliably measurable</span></p>
+                    <p className="flex items-center gap-2"><span className="font-semibold text-gray-700">Width:</span> <span className="text-gray-500 italic">Not reliably measurable</span></p>
+                    <p className="flex items-center gap-2"><span className="font-semibold text-gray-700">Height:</span> <span className="text-gray-500 italic">Not reliably measurable</span></p>
+                    <div className="mt-2 pt-2 border-t border-gray-100 text-[11px] text-gray-500">
+                      <strong className="text-gray-700">Why?</strong> No reliable visual scale reference was detected in the image.
+                    </div>
+                  </div>
                 )}
               </div>
-            )}
 
-            {/* Hazards Detected */}
-            {Array.isArray(verificationResult.hazards) && verificationResult.hazards.length > 0 && !verificationResult.hazards.includes("None") && (
-              <div className="bg-rose-50/80 border border-rose-200 p-3.5 rounded-2xl mb-4">
-                <div className="flex items-center gap-1.5 mb-2">
-                  <span className="text-rose-600 font-bold">⚠️</span>
-                  <h4 className="text-xs font-black text-rose-800 uppercase tracking-wider">Detected Environmental Hazards</h4>
-                </div>
-                <div className="flex flex-wrap gap-1.5">
-                  {verificationResult.hazards.map((hazard: string, idx: number) => (
-                    <span key={idx} className="bg-rose-100 text-rose-900 border border-rose-300 px-2.5 py-0.5 rounded-lg text-[11px] font-extrabold">
-                      🚨 {hazard}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Detailed Waste Objects Analysis Table/Cards */}
-            {Array.isArray(verificationResult.wasteObjects) && verificationResult.wasteObjects.length > 0 ? (
-              <div className="bg-white/60 p-4 rounded-2xl border border-white/80 mb-6">
-                <h4 className="text-xs font-black text-gray-500 uppercase tracking-widest border-b border-gray-100 pb-2 mb-3">
-                  🔍 Detailed Waste Objects Analysis ({verificationResult.wasteObjects.length} categories)
-                </h4>
-                <div className="space-y-2.5">
-                  {verificationResult.wasteObjects.map((obj: any, idx: number) => (
-                    <div key={idx} className="bg-white/80 p-3 rounded-xl border border-gray-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2 shadow-sm hover:border-green-200 transition-all">
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2">
-                          <span className="font-bold text-gray-800 text-xs">{obj.name || 'Waste Item'}</span>
-                          <span className="bg-gray-100 text-gray-600 px-2 py-0.5 rounded text-[10px] font-semibold">{obj.category}</span>
-                          {obj.recyclable ? (
-                            <span className="bg-green-100 text-green-700 px-1.5 py-0.5 rounded text-[10px] font-bold">♻️ Recyclable</span>
-                          ) : (
-                            <span className="bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded text-[10px] font-bold">🗑️ General</span>
-                          )}
-                        </div>
-                        <p className="text-[11px] text-gray-500 mt-1">
-                          <span className="font-semibold">Material:</span> {obj.material || 'Mixed'} | <span className="font-semibold">Condition:</span> {obj.condition || 'Scattered'}
-                        </p>
-                      </div>
-                      <div className="text-right sm:border-l sm:border-gray-100 sm:pl-3 flex sm:flex-col justify-between items-end">
-                        <span className="text-xs font-extrabold text-green-700">{obj.approximateWeightRangeKg || obj.estimatedWeightKg || 'Unknown'} kg</span>
-                        <span className="text-[10px] font-bold text-gray-400">Qty: {obj.approximateQuantityRange || obj.quantity || 'Unknown'} | {obj.confidence}% conf</span>
-                      </div>
+              {/* Section 6 & 7: Estimated Volume + Density */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="bg-white/80 p-3.5 rounded-xl border border-gray-100">
+                  <p className="text-[10px] text-gray-400 font-black uppercase tracking-widest mb-1">Estimated Volume</p>
+                  {verificationResult.volume?.valueM3 !== null && verificationResult.volume?.valueM3 !== undefined ? (
+                    <p className="text-sm font-extrabold text-gray-800">~{verificationResult.volume.valueM3} m³</p>
+                  ) : (
+                    <div>
+                      <p className="text-xs font-semibold text-gray-500 italic">Not available</p>
+                      <p className="text-[10px] text-gray-400 mt-1">Reason: Physical dimensions could not be reliably estimated from this image.</p>
                     </div>
-                  ))}
+                  )}
+                </div>
+                <div className="bg-white/80 p-3.5 rounded-xl border border-gray-100">
+                  <p className="text-[10px] text-gray-400 font-black uppercase tracking-widest mb-1">Density</p>
+                  <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold ${
+                    verificationResult.density?.class === 'High' ? 'bg-red-100 text-red-800'
+                    : verificationResult.density?.class === 'Medium' ? 'bg-yellow-100 text-yellow-800'
+                    : verificationResult.density?.class === 'Low' ? 'bg-green-100 text-green-800'
+                    : 'bg-gray-100 text-gray-700'
+                  }`}>
+                    {verificationResult.density?.class || verificationResult.densityClass || 'Cannot Determine'}
+                  </span>
                 </div>
               </div>
-            ) : Array.isArray(verificationResult.wasteTypes) && verificationResult.wasteTypes.length > 0 && (
-              <div className="bg-white/40 p-4 rounded-2xl border border-white/60 mb-6">
-                <h4 className="text-xs font-black text-gray-500 uppercase tracking-widest border-b border-gray-100 pb-2 mb-3">Detected Waste Item Types</h4>
-                <div className="flex flex-wrap gap-2">
-                  {verificationResult.wasteTypes.map((t: string, idx: number) => (
-                    <span key={idx} className="bg-green-50 text-green-700 border border-green-200 px-3 py-1 rounded-full text-xs font-bold">
-                      📦 {t}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            )}
 
-            {/* Generated Description & AI Recommendations */}
-            <div className="space-y-4">
+              {/* Section 8: Estimated Weight */}
+              <div className="bg-gradient-to-r from-emerald-50 to-teal-50 p-4 rounded-xl border border-emerald-200">
+                <p className="text-[10px] text-emerald-700 font-black uppercase tracking-widest mb-1">Estimated Weight</p>
+                {verificationResult.weightRange?.minKg !== null && verificationResult.weightRange?.minKg !== undefined ? (
+                  <p className="text-lg font-extrabold text-emerald-800">~{verificationResult.weightRange.minKg}–{verificationResult.weightRange.maxKg} kg</p>
+                ) : (
+                  <div>
+                    <p className="text-sm font-bold text-emerald-900 italic">Not reliably estimable</p>
+                    <p className="text-[11px] text-emerald-700 mt-1 font-medium">
+                      Weight estimation requires reliable volume/density information or physical measurement.
+                    </p>
+                  </div>
+                )}
+              </div>
+
+              {/* Section 9, 10, 11: Recyclability + Priority + Env Risk */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div className="bg-white/80 p-3.5 rounded-xl border border-gray-100">
+                  <p className="text-[10px] text-gray-400 font-black uppercase tracking-widest mb-1">Recyclability</p>
+                  <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold ${
+                    (typeof verificationResult.recyclability === 'object' ? verificationResult.recyclability.status : verificationResult.recyclability || '').includes('Highly') ? 'bg-green-100 text-green-800'
+                    : (typeof verificationResult.recyclability === 'object' ? verificationResult.recyclability.status : verificationResult.recyclability || '').includes('Mostly') ? 'bg-emerald-100 text-emerald-800'
+                    : (typeof verificationResult.recyclability === 'object' ? verificationResult.recyclability.status : verificationResult.recyclability || '').includes('Partially') ? 'bg-blue-100 text-blue-800'
+                    : 'bg-gray-100 text-gray-800'
+                  }`}>
+                    {typeof verificationResult.recyclability === 'object' ? verificationResult.recyclability.status : (verificationResult.recyclability || '—')}
+                  </span>
+                </div>
+                <div className="bg-white/80 p-3.5 rounded-xl border border-gray-100">
+                  <p className="text-[10px] text-gray-400 font-black uppercase tracking-widest mb-1">Priority</p>
+                  <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold ${
+                    verificationResult.priorityLevel === 'Critical' ? 'bg-rose-100 text-rose-800 animate-pulse'
+                    : verificationResult.priorityLevel === 'High' ? 'bg-red-100 text-red-800'
+                    : verificationResult.priorityLevel === 'Medium' ? 'bg-yellow-100 text-yellow-800'
+                    : 'bg-blue-100 text-blue-800'
+                  }`}>
+                    {verificationResult.priorityLevel || verificationResult.priority || '—'}
+                  </span>
+                </div>
+                <div className="bg-white/80 p-3.5 rounded-xl border border-gray-100">
+                  <p className="text-[10px] text-gray-400 font-black uppercase tracking-widest mb-1">Environmental Risk</p>
+                  <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold ${
+                    verificationResult.environmentalRisk === 'Critical' ? 'bg-rose-100 text-rose-800'
+                    : verificationResult.environmentalRisk === 'High' ? 'bg-red-100 text-red-800'
+                    : verificationResult.environmentalRisk === 'Medium' ? 'bg-yellow-100 text-yellow-800'
+                    : 'bg-green-100 text-green-800'
+                  }`}>
+                    {verificationResult.environmentalRisk || '—'}
+                  </span>
+                </div>
+              </div>
+
+              {/* Section 12: AI Generated Description */}
               <div className="bg-white/80 p-4 rounded-xl border border-gray-100">
-                <p className="text-xs font-black text-gray-400 uppercase tracking-wide">Generated Waste Description</p>
-                <p className="text-xs text-gray-700 mt-1.5 leading-relaxed font-medium">"{verificationResult.generatedDescription || verificationResult.wasteDescription}"</p>
+                <p className="text-[10px] text-gray-400 font-black uppercase tracking-widest mb-1.5">AI Description</p>
+                <p className="text-xs text-gray-700 leading-relaxed font-medium">"{verificationResult.generatedDescription || verificationResult.wasteDescription}"</p>
               </div>
 
-              {Array.isArray(verificationResult.recyclingRecommendation) && verificationResult.recyclingRecommendation.length > 0 && (
+              {/* Section 13: Recycling Recommendations */}
+              {(Array.isArray(verificationResult.recyclingRecommendations) && verificationResult.recyclingRecommendations.length > 0) && (
                 <div className="bg-white/80 p-4 rounded-xl border border-gray-100">
-                  <p className="text-xs font-black text-gray-400 uppercase tracking-wide mb-2">Recycling Recommendations</p>
+                  <p className="text-[10px] text-gray-400 font-black uppercase tracking-widest mb-2">Recycling Recommendations</p>
                   <ul className="space-y-1 text-xs text-gray-700 font-medium">
-                    {verificationResult.recyclingRecommendation.map((rec: string, idx: number) => (
+                    {verificationResult.recyclingRecommendations.map((rec: string, idx: number) => (
                       <li key={idx} className="flex items-start gap-2">
                         <span className="text-green-600 font-bold">•</span>
                         <span>{rec}</span>
@@ -857,9 +1029,32 @@ Output Schema:
                 </div>
               )}
 
-              <div className="bg-blue-50/60 border border-blue-100 p-4 rounded-xl text-blue-900">
-                <p className="text-xs font-black text-blue-800 uppercase tracking-wide">AI Recommended Handling Action</p>
-                <p className="text-xs font-bold mt-1 leading-relaxed">"{verificationResult.aiRecommendation}"</p>
+              {/* Section 14: Duplicate Check */}
+              <div className="bg-white/80 p-3.5 rounded-xl border border-gray-100 flex items-center justify-between text-xs">
+                <span className="text-[10px] text-gray-400 font-black uppercase tracking-widest">Duplicate Check</span>
+                <span className={`font-bold px-2.5 py-0.5 rounded-full text-[11px] ${
+                  duplicateWarning?.isDuplicate || verificationResult.duplicateCheck?.isPotentialDuplicate
+                    ? 'bg-red-100 text-red-800 border border-red-200'
+                    : 'bg-green-100 text-green-800 border border-green-200'
+                }`}>
+                  {duplicateWarning?.isDuplicate || verificationResult.duplicateCheck?.isPotentialDuplicate ? 'Potential Duplicate Identified' : 'No Potential Duplicate'}
+                </span>
+              </div>
+
+              {/* Section 15: AI Summary */}
+              {verificationResult.aiSummary && (
+                <div className="bg-blue-50/70 border border-blue-100 p-4 rounded-xl">
+                  <p className="text-[10px] text-blue-700 font-black uppercase tracking-widest mb-1">AI Summary</p>
+                  <p className="text-xs text-blue-900 leading-relaxed font-medium">"{verificationResult.aiSummary}"</p>
+                </div>
+              )}
+
+              {/* Section 16: Important Notice */}
+              <div className="bg-amber-50 border border-amber-200 rounded-xl p-3.5 flex items-start gap-2.5">
+                <AlertTriangle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
+                <p className="text-[11px] text-amber-900 font-medium leading-relaxed">
+                  <strong>Important Notice —</strong> {verificationResult.measurementWarning || "AI visual analysis is an estimate based on the uploaded image. Actual weight and physical dimensions require field measurement."}
+                </p>
               </div>
             </div>
           </div>

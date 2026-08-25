@@ -71,7 +71,7 @@ export async function POST(req: Request) {
         wardNumber: parsedData.wardNumber,
         phone: parsedData.phone,
         governmentId: parsedData.governmentId,
-        status: "active",
+        status: "pending",
         rewardPoints: 0,
       }).returning().execute();
 

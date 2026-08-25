@@ -363,6 +363,34 @@ Respond ONLY with valid JSON.`
     currentPage * ITEMS_PER_PAGE
   )
 
+  const isCollectorRole = (session?.user as any)?.role === 'collector' || user?.role === 'collector'
+  const currentCollectorStatus = user?.status || (session?.user as any)?.status || 'pending'
+
+  if (isCollectorRole && currentCollectorStatus !== 'active') {
+    return (
+      <div className="min-h-[70vh] flex items-center justify-center p-4">
+        <div className="max-w-md w-full bg-white p-8 rounded-3xl border border-yellow-200 shadow-xl text-center space-y-4">
+          <div className="w-16 h-16 bg-yellow-100 text-yellow-600 rounded-2xl flex items-center justify-center mx-auto">
+            <Clock className="w-8 h-8" />
+          </div>
+          <h2 className="text-2xl font-bold text-gray-800">
+            {currentCollectorStatus === 'pending' ? 'Account Pending Approval' : currentCollectorStatus === 'suspended' ? 'Account Suspended' : 'Account Rejected'}
+          </h2>
+          <p className="text-sm text-gray-600 font-medium">
+            {currentCollectorStatus === 'pending'
+              ? 'Your Collector account is waiting for Admin approval.'
+              : currentCollectorStatus === 'suspended'
+              ? 'Your Collector account has been suspended by Admin.'
+              : 'Your Collector account application was rejected.'}
+          </p>
+          <p className="text-xs text-gray-400">
+            You can log in, but must remain blocked from Collector functionality until Admin approves the account.
+          </p>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="p-4 sm:p-6 lg:p-8 max-w-4xl mx-auto">
       <div className="mb-8">

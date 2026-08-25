@@ -15,8 +15,9 @@ import { SettingsManager } from './components/SettingsManager'
 import { ActivityLogsManager } from './components/ActivityLogsManager'
 import { AnalyticsDashboard } from './components/AnalyticsDashboard'
 import { DatabaseInspector } from './components/DatabaseInspector'
+import { CollectorApprovalManager } from './components/CollectorApprovalManager'
 
-type AdminTab = 'dashboard' | 'analytics' | 'users' | 'reports' | 'rewards' | 'settings' | 'logs' | 'database'
+type AdminTab = 'dashboard' | 'analytics' | 'users' | 'collector-approval' | 'reports' | 'rewards' | 'settings' | 'logs' | 'database'
 
 export default function AdminDashboardPage() {
   const { data: session, status } = useSession()
@@ -97,6 +98,7 @@ export default function AdminDashboardPage() {
     { id: 'dashboard', label: 'Dashboard', icon: <Activity className="w-4 h-4 mr-2" /> },
     { id: 'analytics', label: 'Analytics', icon: <BarChart3 className="w-4 h-4 mr-2" /> },
     { id: 'users', label: 'Users', icon: <Users className="w-4 h-4 mr-2" /> },
+    { id: 'collector-approval', label: 'Collector Approval', icon: <Shield className="w-4 h-4 mr-2 text-yellow-500" /> },
     { id: 'reports', label: 'Reports & Tasks', icon: <FileText className="w-4 h-4 mr-2" /> },
     { id: 'rewards', label: 'Rewards (Citizens)', icon: <Coins className="w-4 h-4 mr-2" /> },
     { id: 'logs', label: 'Activity Logs', icon: <Search className="w-4 h-4 mr-2" /> },
@@ -137,6 +139,7 @@ export default function AdminDashboardPage() {
         {activeTab === 'dashboard' && <DashboardOverview stats={stats} />}
         {activeTab === 'analytics' && <AnalyticsDashboard />}
         {activeTab === 'users' && <UsersManager users={users} currentAdminId={currentAdminId} onUpdate={fetchAdminData} />}
+        {activeTab === 'collector-approval' && <CollectorApprovalManager currentAdminId={currentAdminId} />}
         {activeTab === 'reports' && <ReportsManager reports={reports} currentAdminId={currentAdminId} onUpdate={fetchAdminData} />}
         {activeTab === 'rewards' && <RewardsManager rewards={rewards} currentAdminId={currentAdminId} onUpdate={fetchAdminData} />}
         {activeTab === 'logs' && <ActivityLogsManager />}

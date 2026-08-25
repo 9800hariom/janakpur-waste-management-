@@ -240,3 +240,64 @@ export async function getAllCitizensPointsAndRewards() {
   }
 }
 
+// --- COLLECTOR APPROVAL ---
+export async function getPendingCollectors() {
+  try {
+    return await db
+      .select({
+        id: Users.id,
+        name: Users.name,
+        email: Users.email,
+        fullName: Users.fullName,
+        address: Users.address,
+        wardNumber: Users.wardNumber,
+        phone: Users.phone,
+        governmentId: Users.governmentId,
+        status: Users.status,
+        createdAt: Users.createdAt,
+      })
+      .from(Users)
+      .where(and(eq(Users.role, 'collector'), eq(Users.status, 'pending')))
+      .orderBy(desc(Users.createdAt))
+      .execute();
+  } catch (error) {
+    console.error("Error fetching pending collectors:", error);
+    return [];
+  }
+}
+
+export async function getAllCollectors() {
+  try {
+    return await db
+      .select({
+        id: Users.id,
+        name: Users.name,
+        email: Users.email,
+        fullName: Users.fullName,
+        address: Users.address,
+        wardNumber: Users.wardNumber,
+        phone: Users.phone,
+        governmentId: Users.governmentId,
+        status: Users.status,
+        createdAt: Users.createdAt,
+      })
+      .from(Users)
+      .where(eq(Users.role, 'collector'))
+      .orderBy(desc(Users.createdAt))
+      .execute();
+  } catch (error) {
+    console.error("Error fetching all collectors:", error);
+    return [];
+  }
+}
+
+export async function updateCollectorStatus(adminId: number, collectorId: number, newStatus: 'active' | 'rejected' | 'suspended') {
+  try {
+    await db.update(Users).set({ status: newStatus, updatedAt: new Date() }).where(eq(Users.id, collectorId)).execute();
+    await logAdminAction(adminId, `COLLECTOR_${newStatus.toUpperCase()}`, 'users', collectorId, { status: newStatus });
+    return true;
+  } catch (error) {
+    console.error("Error updating collector status:", error);
+    return false;
+  }
+}
