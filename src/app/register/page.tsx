@@ -150,7 +150,7 @@ export default function RegisterPage() {
         <div className="flex justify-center mb-6">
           <Link href="/" className="flex items-center space-x-2">
             <Leaf className="h-9 w-9 text-green-600 animate-pulse" />
-            <span className="font-bold text-2xl text-gray-800 tracking-tight">green Janakpur Waste Management</span>
+            <span className="font-bold text-2xl text-gray-800 tracking-tight"> Janakpur Waste Management</span>
           </Link>
         </div>
 
