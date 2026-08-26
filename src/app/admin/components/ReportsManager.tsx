@@ -504,7 +504,11 @@ export function ReportsManager({ reports: initialReports, currentAdminId, onUpda
                     <DetailItem label="Verification Status" value={selectedReport.verificationResult.verificationStatus || "N/A"} />
                     <DetailItem label="Confidence" value={`${selectedReport.verificationResult.aiConfidence || selectedReport.verificationResult.confidence * 100 || 0}%`} />
                     <DetailItem label="Waste Category" value={selectedReport.verificationResult.wasteCategory || selectedReport.verificationResult.wasteType || "Mixed"} />
-                    <DetailItem label="Estimated Weight" value={`${selectedReport.verificationResult.estimatedWeightKg || selectedReport.verificationResult.estimatedWeight || "0.0"} kg`} />
+                    <DetailItem label="Estimated Weight" value={
+                      typeof selectedReport.verificationResult.estimatedWeightKg === 'string' && selectedReport.verificationResult.estimatedWeightKg.includes('Not')
+                        ? selectedReport.verificationResult.estimatedWeightKg
+                        : `${selectedReport.verificationResult.estimatedWeightKg || selectedReport.verificationResult.estimatedWeight || "0.0"} kg`
+                    } />
                     <DetailItem label="Quantity" value={selectedReport.verificationResult.estimatedQuantity || "N/A"} />
                     <DetailItem label="Estimated Volume" value={selectedReport.verificationResult.estimatedVolume || "N/A"} />
                     <DetailItem label="Objects Count" value={selectedReport.verificationResult.objectsCount || "0"} />
